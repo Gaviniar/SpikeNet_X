@@ -240,7 +240,7 @@
 - Language: python
 - Size: 19761 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-14 19:45:03
+- Modified: 2025-09-14 19:54:32
 
 ### Code
 
@@ -548,7 +548,7 @@
 301 |         model.eval()
 302 |         logits_list = []
 303 |         labels_list = []
-304 |         num_neighbors_to_sample = 10 # Use the same for testing
+304 |         num_neighbors_to_sample = 25 # Use the same for testing
 305 |         for nodes in tqdm(loader, desc='Testing'):
 306 |             nodes = nodes.to(device)
 307 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
@@ -4053,9 +4053,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 9673 bytes
+- Size: 9746 bytes
 - Created: 2025-08-22 12:59:28
-- Modified: 2025-09-14 19:28:20
+- Modified: 2025-09-14 19:59:08
 
 ### Code
 
@@ -4282,18 +4282,20 @@
 220 |                 logits_flat, mask_flat, k=k_eff, dim=-1, temperature=self.temp
 221 |             )  # [H,N,(W_eff+1)*N]
 222 |             probs = self.attn_drop(probs)
-223 | 
-224 |             # 构造对应的值向量拼接：V_cat: [H,(W_eff+1)*N,d_h]
-225 |             V_cat = torch.cat(V_chunks, dim=1)  # [H, (W_eff+1)*N, d_h]
-226 | 
-227 |             # 聚合：msg_h = probs @ V_cat
-228 |             msg_h = torch.einsum("hni,hid->hnd", probs, V_cat)  # [H,N,d_h]
-229 | 
-230 |             # 合并头并写入输出
-231 |             M_t = msg_h.permute(1, 0, 2).contiguous().view(N, self.d)  # [N,d]
-232 |             M_out[t] = M_t
-233 | 
-234 |         return M_out  # [T,N,d]
+223 |             
+224 |             torch.nan_to_num_(probs, nan=0.0)
+225 |             
+226 |             # 构造对应的值向量拼接：V_cat: [H,(W_eff+1)*N,d_h]
+227 |             V_cat = torch.cat(V_chunks, dim=1)  # [H, (W_eff+1)*N, d_h]
+228 | 
+229 |             # 聚合：msg_h = probs @ V_cat
+230 |             msg_h = torch.einsum("hni,hid->hnd", probs, V_cat)  # [H,N,d_h]
+231 | 
+232 |             # 合并头并写入输出
+233 |             M_t = msg_h.permute(1, 0, 2).contiguous().view(N, self.d)  # [N,d]
+234 |             M_out[t] = M_t
+235 | 
+236 |         return M_out  # [T,N,d]
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\sta_sparse.py
