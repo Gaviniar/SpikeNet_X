@@ -221,6 +221,8 @@ parser.add_argument('--concat', action='store_true',
                     help='Whether to concat node representation and neighborhood representations. (default: False)')
 parser.add_argument('--seed', type=int, default=2022,
                     help='Random seed for model. (default: 2022)')
+parser.add_argument('--datapath', type=str, default='./data',
+                    help='Wheres your data?, Default is ./data')
 
 # SpikeNet-X specific args
 parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeNet-X. (default: 4)')
@@ -252,11 +254,11 @@ except:
 assert len(args.hids) == len(args.sizes), "must be equal!"
 
 if args.dataset.lower() == "dblp":
-    data = dataset.DBLP()
+    data = dataset.DBLP(root = args.datapath)
 elif args.dataset.lower() == "tmall":
-    data = dataset.Tmall()
+    data = dataset.Tmall(root = args.datapath)
 elif args.dataset.lower() == "patent":
-    data = dataset.Patent()
+    data = dataset.Patent(root = args.datapath)
 else:
     raise ValueError(
         f"{args.dataset} is invalid. Only datasets (dblp, tmall, patent) are available.")

@@ -81,14 +81,18 @@ SpikeNet
 # Requirements
 
 ```
-tqdm==4.59.0
-scipy==1.5.2
-texttable==1.6.2
-torch==1.9.0
-numpy==1.22.4
-numba==0.56.4
-scikit_learn==1.0
-torch_cluster (optional, only for random walk sampler)
+gensim==4.2.0
+numba==0.61.2
+numpy==1.25.2
+scikit_learn==1.1.3
+scipy==1.16.2
+setuptools==68.2.2
+texttable==1.7.0
+torch==1.13.0+cu117
+torch_cluster==1.6.3
+torch_geometric==2.6.1
+torch_scatter==2.1.0+pt113cu117
+tqdm==4.67.1
 ```
 
 In fact, the version of these packages does not have to be consistent to ours. For example, Pytorch 1.6~-1.12 should also work.
