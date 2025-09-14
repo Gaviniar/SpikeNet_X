@@ -192,7 +192,7 @@ class SpikingTemporalAttention(nn.Module):
 
                 # 源端脉冲门控（log-domain 加法）
                 gate_j = torch.clamp(S[t_prime], 0.0, 1.0).to(dtype=dtype)  # [N]
-                gate_chunks.append(torch.log(gate_j + eps_gate).view(1, 1, N))  # [1,1,N]
+                gate_chunks.append(torch.log(0.5 + 0.5 * gate_j + eps_gate).view(1, 1, N))
 
                 # 邻接掩码广播到各头
                 mask_hij = A.view(1, N, N).expand(self.heads, -1, -1)  # [H,N,N]

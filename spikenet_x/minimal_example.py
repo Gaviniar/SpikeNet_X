@@ -51,7 +51,7 @@ def main():
         heads=Hs,
         topk=8,
         W=8,
-        attn_impl="sparse",
+        attn_impl="dense",
         out_dim=5,
     )
     model.eval() # 禁用 dropout

@@ -215,10 +215,12 @@ parser.add_argument('--datapath', type=str, default='./data',
 
 # SpikeNet-X specific args
 parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeNet-X. (default: 4)')
-parser.add_argument('--topk', type=int, default=8, help='Top-k neighbors for SpikeNet-X attention. (default: 8)')
-parser.add_argument('--W', type=int, default=8, help='Time window size for SpikeNet-X. (default: 8)')
-parser.add_argument('--attn_impl', type=str, default='sparse', choices=['dense','sparse'],
-                    help='Attention kernel for SpikeNet-X: "dense" (fallback) or "sparse" (scales to big graphs). (default: "sparse")')
+parser.add_argument('--topk', type=int, default=16, help='Top-k neighbors for SpikeNet-X attention. (default: 16)')
+parser.add_argument('--W', type=int, default=32, help='Time window size for SpikeNet-X. (default: 32)')
+parser.add_argument('--attn_impl', type=str, default='dense', choices=['dense','sparse'],
+                    help='Attention kernel for SpikeNet-X: "dense" (recommended for subgraph) or "sparse". (default: "dense")')
+parser.add_argument('--readout', type=str, default='mean', choices=['last','mean'],
+                    help="Temporal readout for logits. (default: 'mean')")
 
 # 新增：模型保存、加载与测试参数
 parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
@@ -298,6 +300,10 @@ if args.model == 'spikenetx':
             # We only compute the loss on the seed nodes of the batch
             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
             
+            # ---- 脉冲率正则（稳定早期训练，目标平均放电率≈0.1）
+            spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
+            loss = loss + 2e-5 * (spike_rate - 0.1).abs()
+            
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -350,7 +356,11 @@ if args.model == 'spikenetx':
         out_dim=data.num_classes,
         topk=args.topk,
         W=args.W,
-        attn_impl=args.attn_impl
+        attn_impl=args.attn_impl,
+        readout=args.readout,        # 新增：使用 mean 读出
+        lif_tau_theta=0.95,          # 更“活”的神经元
+        lif_gamma=0.20,
+        lif_beta=1.0,                # 先用 1.0（见第 4 步 10% epoch 后切回 2.0）
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
@@ -389,6 +399,10 @@ if args.model == 'spikenetx':
     print("Starting SpikeNet-X training...")
     start = time.time()
     for epoch in range(start_epoch, args.epochs + 1):
+        if epoch == int(0.1 * args.epochs):
+            for blk in model.blocks:
+                blk.neuron.beta = 2.0
+                
         train_spikenetx()
         val_metric = test_spikenetx(val_loader)
         test_metric = test_spikenetx(test_loader)
