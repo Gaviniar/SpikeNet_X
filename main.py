@@ -202,8 +202,8 @@ parser.add_argument('--alpha', type=float, default=1.0,
                     help='Smooth factor for surrogate learning. (default: 1.0)')
 parser.add_argument('--p', type=float, default=0.5,
                     help='Percentage of sampled neighborhoods for g_t. (default: 0.5)')
-parser.add_argument('--dropout', type=float, default=0.7,
-                    help='Dropout probability. (default: 0.7)')
+parser.add_argument('--dropout', type=float, default=0.65,
+                    help='Dropout probability. (default: 0.65)')
 parser.add_argument('--epochs', type=int, default=100,
                     help='Number of training epochs. (default: 100)')
 parser.add_argument('--concat', action='store_true',
@@ -304,8 +304,6 @@ if args.model == 'spikenetx':
             spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
             if epoch > 10:
                 loss = loss + 2e-5 * (spike_rate - 0.1).abs()
-
-            
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
