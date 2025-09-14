@@ -57,8 +57,6 @@ def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neig
     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
 
 
-
-
 def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -303,7 +301,7 @@ if args.model == 'spikenetx':
         model.eval()
         logits_list = []
         labels_list = []
-        num_neighbors_to_sample = 10 # Use the same for testing
+        num_neighbors_to_sample = 25 # Use the same for testing
         for nodes in tqdm(loader, desc='Testing'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
