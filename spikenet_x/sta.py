@@ -220,7 +220,9 @@ class SpikingTemporalAttention(nn.Module):
                 logits_flat, mask_flat, k=k_eff, dim=-1, temperature=self.temp
             )  # [H,N,(W_eff+1)*N]
             probs = self.attn_drop(probs)
-
+            
+            torch.nan_to_num_(probs, nan=0.0)
+            
             # 构造对应的值向量拼接：V_cat: [H,(W_eff+1)*N,d_h]
             V_cat = torch.cat(V_chunks, dim=1)  # [H, (W_eff+1)*N, d_h]
 
