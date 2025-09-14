@@ -274,7 +274,16 @@ if args.model == 'spikenetx':
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
             
             H0_subgraph = H0_full[:, subgraph_nodes, :]
+            # --- 强校验：子图边必须是局部 id，且与特征 N 一致 ---
             
+            N_sub = subgraph_nodes.numel()
+            assert subgraph_edge_index.dtype == torch.long, "subgraph_edge_index 必须是 torch.long（int64）"
+            assert subgraph_edge_index.numel() > 0, "子图没有边（可能邻居采样太小或图太稀疏）"
+            assert int(subgraph_edge_index.max().item()) < N_sub and int(subgraph_edge_index.min().item()) >= 0, \
+                f"边索引越界：[{int(subgraph_edge_index.min())}, {int(subgraph_edge_index.max())}]，但 N_sub={N_sub}"
+            # H0_subgraph 形状应为 [T, N_sub, d_in]
+            assert H0_subgraph.size(1) == N_sub, f"H0_subgraph 第二维应等于 N_sub，但拿到 {H0_subgraph.size()} vs N_sub={N_sub}"
+
             optimizer.zero_grad()
             
             # The model's output `repr` and `logits` are for all nodes in the subgraph

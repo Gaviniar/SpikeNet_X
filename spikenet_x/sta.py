@@ -33,21 +33,27 @@ from .rel_time import RelativeTimeEncoding
 
 
 def _edge_index_to_dense_adj(edge_index: torch.Tensor, num_nodes: int, device: torch.device) -> torch.Tensor:
+    # 形状检查
     assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index 应为 [2, E]"
-    # --- 新增：越界保护，帮助快速定位“全局→局部未映射”的问题 ---
-    if edge_index.numel() > 0:
-        max_id = int(edge_index.max().item())
-        min_id = int(edge_index.min().item())
-        if max_id >= num_nodes or min_id < 0:
-            raise RuntimeError(
-                f"edge_index 包含越界节点（min={min_id}, max={max_id}, num_nodes={num_nodes}）。"
-                "请确认子图边已映射为局部 id（0..N_sub-1）。"
-            )
-    # ----------------------------------------------------------
+    if edge_index.numel() == 0:
+        return torch.zeros((num_nodes, num_nodes), dtype=torch.bool, device=device)
+
+    # --- 越界保护：确保传入的是“局部 id（0..num_nodes-1）” ---
+    max_id = int(edge_index.max().item())
+    min_id = int(edge_index.min().item())
+    if max_id >= num_nodes or min_id < 0:
+        raise RuntimeError(
+            f"[dense adj] edge_index 越界：min={min_id}, max={max_id}, 但 num_nodes={num_nodes}。"
+            "请确认子图边已映射为局部 id（0..N_sub-1），且 H0_subgraph 的 N 与之匹配。"
+        )
+
+    # 用 GPU 写稠密邻接（安全、快速）
     adj = torch.zeros((num_nodes, num_nodes), dtype=torch.bool, device=device)
-    src, dst = edge_index[0].to(torch.long), edge_index[1].to(torch.long)
+    src = edge_index[0].to(torch.long)
+    dst = edge_index[1].to(torch.long)
     adj[dst, src] = True
     return adj
+
 
 
 class SpikingTemporalAttention(nn.Module):

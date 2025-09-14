@@ -89,48 +89,38 @@ def masked_softmax(
     return exp / denom
 
 
-def topk_mask_logits(
-    logits: torch.Tensor,
-    k: int,
-    dim: int = -1,
-    inplace: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def topk_mask_logits(logits: torch.Tensor, k: int, dim: int = -1, inplace: bool = False):
     """
-    在维度 dim 上选出前 k 的元素，其余位置置为 -inf（或近似值）。
-
-    注意：
-    - 该函数只在 logits 上执行 Top-k 筛选，不做 softmax。
-    - 返回 (new_logits, keep_mask)
-
-    参数
-    ----
-    logits : Float[...]
-    k : int
-        k >= 1
-    dim : int
-    inplace : bool
-        是否原地写回
-
-    返回
-    ----
-    new_logits : Float[...]
-        仅保留 Top-k 的 logits；其余位置为 -inf
-    keep_mask : Bool[...]
-        True 表示该位置被保留
+    仅保留最后一维的 top-k 位置，其它位置填充 NEG_INF。
+    返回：(new_logits, keep_mask)
     """
-    assert k >= 1, "topk must be >= 1"
-    # 取 Top-k 的阈值
-    topk_vals, topk_idx = torch.topk(logits, k=k, dim=dim)
-    # 构造保留 mask
-    keep_mask = torch.zeros_like(logits, dtype=torch.bool)
+    if k is None or k <= 0:
+        keep_mask = torch.ones_like(logits, dtype=torch.bool)
+        return (logits, keep_mask) if not inplace else (logits, keep_mask)
+
+    # 兼容负维、非连续存储
+    last_dim = logits.size(dim)
+    k_eff = int(min(k, last_dim))
+    if k_eff <= 0:
+        keep_mask = torch.ones_like(logits, dtype=torch.bool)
+        return (logits, keep_mask)
+
+    x = logits.contiguous()  # 有些 CUDA 版本在非 contiguous + topk 下不稳定
+    # 取 topk 索引
+    topk_vals, topk_idx = torch.topk(x, k=k_eff, dim=dim)
+
+    # 构造布尔 keep_mask
+    keep_mask = torch.zeros_like(x, dtype=torch.bool)
     keep_mask.scatter_(dim, topk_idx, True)
 
     if inplace:
-        out = fill_masked_(logits, keep_mask, NEG_INF)
-        return out, keep_mask
+        x.masked_fill_(~keep_mask, NEG_INF)
+        return x, keep_mask
     else:
-        new_logits = torch.where(keep_mask, logits, torch.full_like(logits, NEG_INF))
+        new_logits = x.clone()
+        new_logits.masked_fill_(~keep_mask, NEG_INF)
         return new_logits, keep_mask
+
 
 
 def masked_topk_softmax(
