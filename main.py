@@ -15,66 +15,55 @@ from texttable import Texttable # Added for tab_printer
 import numpy as np # Added for set_seed
 
 
-def sample_subgraph(nodes, edge_index_full, num_neighbors=-1):
+def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
     """
-    Samples a 1-hop subgraph for the given seed nodes, with an optional
-    limit on the number of neighbors per node.
-    
-    Args:
-        nodes (Tensor): Seed nodes of shape [B].
-        edge_index_full (Tensor): Full graph edge index of shape [2, E_full].
-        num_neighbors (int): Number of neighbors to sample for each node.
-                             -1 means all neighbors.
-
-    Returns:
-        subgraph_nodes (Tensor): Unique nodes in the subgraph, shape [N_sub].
-        subgraph_edge_index (Tensor): Edge index of the subgraph, shape [2, E_sub].
-        nodes_local_index (Tensor): Indices of the seed nodes within subgraph_nodes.
+    以一批种子节点 nodes 抽 1-hop 子图，并返回：
+      - subgraph_nodes: 子图包含的全局节点 id，形状 [N_sub]
+      - subgraph_edge_index: 子图边(局部id)，形状 [2, E_sub]
+      - nodes_local_index: 种子在子图里的局部索引，形状 [B]
+    关键改动：保留子图内部的“所有边”（src/dst 都在子图内），解锁多层传播。
     """
     row, col = edge_index_full
-    
-    # Efficiently find neighbors for each node in the batch
-    sampled_neighbors = []
+    device = row.device
+    nodes = nodes.to(device)
+
+    # 1) 先收集邻居（全收或限量）
     if num_neighbors == -1:
-        # Get all neighbors
-        node_mask = torch.isin(row, nodes)
-        neighbors = edge_index_full[1, node_mask]
-        sampled_neighbors.append(neighbors)
+        mask = torch.isin(row, nodes)
+        neighbors = col[mask]
     else:
-        # Sample a fixed number of neighbors for each node
-        for node_id in nodes:
-            node_mask = (row == node_id)
-            node_neighbors = col[node_mask]
-            if node_neighbors.numel() > num_neighbors:
-                # Randomly sample neighbors
-                perm = torch.randperm(node_neighbors.numel(), device=nodes.device)[:num_neighbors]
-                node_neighbors = node_neighbors[perm]
-            sampled_neighbors.append(node_neighbors)
+        # 简洁做法：对所有与种子相连的邻居做全局采样，期望规模 ≈ B * num_neighbors
+        mask = torch.isin(row, nodes)
+        neighbors_all = col[mask]
+        target = nodes.numel() * int(num_neighbors)
+        if neighbors_all.numel() > target > 0:
+            perm = torch.randperm(neighbors_all.numel(), device=device)[:target]
+            neighbors = neighbors_all[perm]
+        else:
+            neighbors = neighbors_all
 
-    if sampled_neighbors:
-        neighbors = torch.cat(sampled_neighbors)
-        subgraph_nodes = torch.cat([nodes, neighbors]).unique()
-    else:
-        subgraph_nodes = nodes.unique()
-    
-    # This is the correct set of edges for the 1-hop subgraph
-    edge_mask = torch.isin(row, nodes) & torch.isin(col, subgraph_nodes)
-    subgraph_edge_index_global = edge_index_full[:, edge_mask]
+    # 2) 子图节点集合：种子 ∪ 采样邻居
+    subgraph_nodes = torch.unique(torch.cat([nodes, neighbors], dim=0))
 
-    # Map global node indices to local indices in the subgraph
-    node_map = {global_id.item(): local_id for local_id, global_id in enumerate(subgraph_nodes)}
-    
-    # Remap edge_index to local subgraph indices
-    subgraph_edge_index = torch.tensor(
-        [[node_map[src.item()] for src in subgraph_edge_index_global[0]],
-         [node_map[dst.item()] for dst in subgraph_edge_index_global[1]]],
-        dtype=torch.long, device=nodes.device
-    )
+    # 3) **关键修复**：仅保留子图内部的边（src/dst 都在 subgraph_nodes）
+    mask_src = torch.isin(row, subgraph_nodes)
+    mask_dst = torch.isin(col, subgraph_nodes)
+    edge_mask = mask_src & mask_dst
+    subgraph_edge_index_global = edge_index_full[:, edge_mask]  # 仍是“全局 id”
 
-    # Get local indices of the seed nodes
-    nodes_local_index = torch.tensor([node_map[n.item()] for n in nodes], dtype=torch.long, device=nodes.device)
+    # 4) 将全局 id 映射到局部 id（纯 Torch，避免 Python 循环/字典）
+    subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)  # searchsorted 需要有序
+    src_global = subgraph_edge_index_global[0]
+    dst_global = subgraph_edge_index_global[1]
+    src_local = torch.searchsorted(subgraph_nodes_sorted, src_global)
+    dst_local = torch.searchsorted(subgraph_nodes_sorted, dst_global)
+    subgraph_edge_index = torch.stack([src_local, dst_local], dim=0)
 
-    return subgraph_nodes, subgraph_edge_index, nodes_local_index
+    # 5) 种子节点的局部索引
+    nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
+
+    return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
+
 
 
 def set_seed(seed):
@@ -228,8 +217,9 @@ parser.add_argument('--datapath', type=str, default='./data',
 parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeNet-X. (default: 4)')
 parser.add_argument('--topk', type=int, default=8, help='Top-k neighbors for SpikeNet-X attention. (default: 8)')
 parser.add_argument('--W', type=int, default=8, help='Time window size for SpikeNet-X. (default: 8)')
-parser.add_argument('--attn_impl', type=str, default='sparse', choices=['dense','sparse'],
-                    help='Attention kernel for SpikeNet-X: "dense" (fallback) or "sparse" (scales to big graphs). (default: "sparse")')
+parser.add_argument('--attn_impl', type=str, default='dense', choices=['dense','sparse'],
+                    help='Attention kernel for SpikeNet-X: "dense" (fallback, supports top-k) or "sparse". (default: "dense")')
+
 
 # 新增：模型保存、加载与测试参数
 parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
@@ -284,7 +274,8 @@ if args.model == 'spikenetx':
         model.train()
         total_loss = 0
         # Let's use a fixed number of neighbors for now to control memory
-        num_neighbors_to_sample = 10 
+        # 现为25， -1 为全邻居
+        num_neighbors_to_sample = 25 
         for nodes in tqdm(train_loader, desc='Training'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
@@ -352,7 +343,8 @@ if args.model == 'spikenetx':
         out_dim=data.num_classes,
         topk=args.topk,
         W=args.W,
-        attn_impl=args.attn_impl
+        attn_impl=args.attn_impl,
+        readout="mean",  # ← 新增：用时间平均读出
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
