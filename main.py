@@ -302,7 +302,9 @@ if args.model == 'spikenetx':
             
             # ---- 脉冲率正则（稳定早期训练，目标平均放电率≈0.1）
             spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
-            loss = loss + 2e-5 * (spike_rate - 0.1).abs()
+            if epoch > 10:
+                loss = loss + 2e-5 * (spike_rate - 0.1).abs()
+
             
             loss.backward()
             optimizer.step()

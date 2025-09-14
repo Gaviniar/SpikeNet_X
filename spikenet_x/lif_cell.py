@@ -64,7 +64,7 @@ class LIFCell(nn.Module):
         self.beta = float(beta)
 
         # U: R^d -> R（共享于所有节点），无偏置避免电流漂移
-        self.proj = nn.Linear(d, 1, bias=False)
+        self.proj = nn.Linear(d, 1, bias=True)
 
         # 将标量参数注册为 buffer，便于脚本化与移动设备
         self.register_buffer("lambda_mem", torch.as_tensor(lambda_mem, dtype=torch.float32))
