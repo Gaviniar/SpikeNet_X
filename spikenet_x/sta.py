@@ -33,16 +33,19 @@ from .rel_time import RelativeTimeEncoding
 
 
 def _edge_index_to_dense_adj(edge_index: torch.Tensor, num_nodes: int, device: torch.device) -> torch.Tensor:
-    """
-    将 edge_index (2,E), 其中列为 (src, dst)，转换为稠密邻接掩码 adj[i,j]：
-    True 表示存在 j -> i 的边（即 dst=i, src=j）。
-    """
     assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index 应为 [2, E]"
+    # --- 新增：越界保护，帮助快速定位“全局→局部未映射”的问题 ---
+    if edge_index.numel() > 0:
+        max_id = int(edge_index.max().item())
+        min_id = int(edge_index.min().item())
+        if max_id >= num_nodes or min_id < 0:
+            raise RuntimeError(
+                f"edge_index 包含越界节点（min={min_id}, max={max_id}, num_nodes={num_nodes}）。"
+                "请确认子图边已映射为局部 id（0..N_sub-1）。"
+            )
+    # ----------------------------------------------------------
     adj = torch.zeros((num_nodes, num_nodes), dtype=torch.bool, device=device)
-    if edge_index.numel() == 0:
-        return adj
-    src = edge_index[0].to(torch.long)
-    dst = edge_index[1].to(torch.long)
+    src, dst = edge_index[0].to(torch.long), edge_index[1].to(torch.long)
     adj[dst, src] = True
     return adj
 
