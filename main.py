@@ -266,8 +266,8 @@ y = data.y.to(device)
 
 train_loader = DataLoader(data.train_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else data.val_nodes.tolist(),
-                        pin_memory=False, batch_size=200000, shuffle=False)
-test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=200000, shuffle=False)
+                        pin_memory=False, batch_size=args.batch_size, shuffle=False)
+test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=False)
 
 if args.model == 'spikenetx':
     
