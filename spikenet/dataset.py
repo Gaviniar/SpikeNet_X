@@ -15,10 +15,18 @@ Data = namedtuple('Data', ['x', 'edge_index'])
 
 
 def standard_normalization(arr):
+    """
+    稳定版标准化：逐时间步仅按行标准差缩放（不中心化）。
+    - 解决 sklearn.scale(axis=1) 在 std≈0/数值极端时的警告
+    - 保持与原来“逐时间片统一缩放”的语义一致
+    """
     n_steps, n_node, n_dim = arr.shape
-    arr_norm = preprocessing.scale(np.reshape(arr, [n_steps, n_node * n_dim]), axis=1)
-    arr_norm = np.reshape(arr_norm, [n_steps, n_node, n_dim])
-    return arr_norm
+    X = arr.reshape(n_steps, -1).astype(np.float32)   # [T, N*F]
+    std = X.std(axis=1, keepdims=True)
+    std = np.where(std < 1e-6, 1.0, std)             # 防止极小 std
+    X = X / std
+    X = np.nan_to_num(X, copy=False, nan=0.0, posinf=1e3, neginf=-1e3)
+    return X.reshape(n_steps, n_node, n_dim).astype(np.float32)
 
 
 def edges_to_adj(edges, num_nodes, undirected=True):

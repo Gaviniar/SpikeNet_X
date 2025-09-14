@@ -264,8 +264,8 @@ y = data.y.to(device)
 
 train_loader = DataLoader(data.train_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else data.val_nodes.tolist(),
-                        pin_memory=False, batch_size=200000, shuffle=False)
-test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=200000, shuffle=False)
+                        pin_memory=False, batch_size=args.batch_size, shuffle=False)
+test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=False)
 
 if args.model == 'spikenetx':
     
@@ -273,7 +273,7 @@ if args.model == 'spikenetx':
         model.train()
         total_loss = 0
         # Let's use a fixed number of neighbors for now to control memory
-        num_neighbors_to_sample = 10 
+        num_neighbors_to_sample = 25
         for nodes in tqdm(train_loader, desc='Training'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
