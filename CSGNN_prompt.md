@@ -4,14 +4,7 @@
 - F:\SomeProjects\CSGNN\LICENSE
 - F:\SomeProjects\CSGNN\main.py
 - F:\SomeProjects\CSGNN\main_static.py
-- F:\SomeProjects\CSGNN\README.md
 - F:\SomeProjects\CSGNN\setup.py
-- F:\SomeProjects\CSGNN\提示词.md
-- F:\SomeProjects\CSGNN\cline_docs\activeContext.md
-- F:\SomeProjects\CSGNN\cline_docs\productContext.md
-- F:\SomeProjects\CSGNN\cline_docs\progress.md
-- F:\SomeProjects\CSGNN\cline_docs\systemPatterns.md
-- F:\SomeProjects\CSGNN\cline_docs\techContext.md
 - F:\SomeProjects\CSGNN\spikenet\dataset.py
 - F:\SomeProjects\CSGNN\spikenet\deepwalk.py
 - F:\SomeProjects\CSGNN\spikenet\layers.py
@@ -25,9 +18,14 @@
 - F:\SomeProjects\CSGNN\spikenet_x\model.py
 - F:\SomeProjects\CSGNN\spikenet_x\rel_time.py
 - F:\SomeProjects\CSGNN\spikenet_x\spikenetx_layer.py
+- F:\SomeProjects\CSGNN\spikenet_x\spiketdanet_layer.py
 - F:\SomeProjects\CSGNN\spikenet_x\sta.py
 - F:\SomeProjects\CSGNN\spikenet_x\sta_sparse.py
 - F:\SomeProjects\CSGNN\spikenet_x\__init__.py
+- F:\SomeProjects\CSGNN\spikenet_x\new_modules\delay_line.py
+- F:\SomeProjects\CSGNN\spikenet_x\new_modules\spatial_gnn_wrapper.py
+- F:\SomeProjects\CSGNN\spikenet_x\new_modules\sta_gnn_agg.py
+- F:\SomeProjects\CSGNN\spikenet_x\new_modules\__init__.py
 
 ## File: F:\SomeProjects\CSGNN\.gitignore
 
@@ -238,9 +236,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 21401 bytes
+- Size: 19847 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-15 01:17:11
+- Modified: 2025-09-15 02:32:32
 
 ### Code
 
@@ -257,60 +255,60 @@
  10 | 
  11 | from spikenet import dataset, neuron
  12 | from spikenet.layers import SAGEAggregator
- 13 | from spikenet_x.model import SpikeNetX
- 14 | from texttable import Texttable # Added for tab_printer
- 15 | import numpy as np # Added for set_seed
- 16 | 
+ 13 | # 更改导入，直接使用新模型名称
+ 14 | from spikenet_x.model import SpikeTDANet
+ 15 | from texttable import Texttable
+ 16 | import numpy as np
  17 | 
- 18 | def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
- 19 |     """
- 20 |     以一批种子节点 nodes 抽 1-hop 子图，并返回：
- 21 |       - subgraph_nodes: 子图包含的全局节点 id，形状 [N_sub]
- 22 |       - subgraph_edge_index: 子图边(局部id)，形状 [2, E_sub]
- 23 |       - nodes_local_index: 种子在子图里的局部索引，形状 [B]
- 24 |     关键改动：保留子图内部的“所有边”（src/dst 都在子图内），解锁多层传播。
- 25 |     """
- 26 |     row, col = edge_index_full
- 27 |     device = row.device
- 28 |     nodes = nodes.to(device)
- 29 | 
- 30 |     # 1) 先收集邻居（全收或限量）
- 31 |     if num_neighbors == -1:
- 32 |         mask = torch.isin(row, nodes)
- 33 |         neighbors = col[mask]
- 34 |     else:
- 35 |         # 简洁做法：对所有与种子相连的邻居做全局采样，期望规模 ≈ B * num_neighbors
- 36 |         mask = torch.isin(row, nodes)
- 37 |         neighbors_all = col[mask]
- 38 |         target = nodes.numel() * int(num_neighbors)
- 39 |         if neighbors_all.numel() > target > 0:
- 40 |             perm = torch.randperm(neighbors_all.numel(), device=device)[:target]
- 41 |             neighbors = neighbors_all[perm]
- 42 |         else:
- 43 |             neighbors = neighbors_all
- 44 | 
- 45 |     # 2) 子图节点集合：种子 ∪ 采样邻居
- 46 |     subgraph_nodes = torch.unique(torch.cat([nodes, neighbors], dim=0))
- 47 | 
- 48 |     # 3) **关键修复**：仅保留子图内部的边（src/dst 都在 subgraph_nodes）
- 49 |     mask_src = torch.isin(row, subgraph_nodes)
- 50 |     mask_dst = torch.isin(col, subgraph_nodes)
- 51 |     edge_mask = mask_src & mask_dst
- 52 |     subgraph_edge_index_global = edge_index_full[:, edge_mask]  # 仍是“全局 id”
- 53 | 
- 54 |     # 4) 将全局 id 映射到局部 id（纯 Torch，避免 Python 循环/字典）
- 55 |     subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)  # searchsorted 需要有序
- 56 |     src_global = subgraph_edge_index_global[0]
- 57 |     dst_global = subgraph_edge_index_global[1]
- 58 |     src_local = torch.searchsorted(subgraph_nodes_sorted, src_global)
- 59 |     dst_local = torch.searchsorted(subgraph_nodes_sorted, dst_global)
- 60 |     subgraph_edge_index = torch.stack([src_local, dst_local], dim=0)
- 61 | 
- 62 |     # 5) 种子节点的局部索引
- 63 |     nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
- 64 | 
- 65 |     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
- 66 | 
+ 18 | 
+ 19 | def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
+ 20 |     """
+ 21 |     以一批种子节点 nodes 抽 1-hop 子图，并返回：
+ 22 |       - subgraph_nodes: 子图包含的全局节点 id，形状 [N_sub]
+ 23 |       - subgraph_edge_index: 子图边(局部id)，形状 [2, E_sub]
+ 24 |       - nodes_local_index: 种子在子图里的局部索引，形状 [B]
+ 25 |     关键改动：保留子图内部的“所有边”（src/dst 都在子图内），解锁多层传播。
+ 26 |     """
+ 27 |     row, col = edge_index_full
+ 28 |     device = row.device
+ 29 |     nodes = nodes.to(device)
+ 30 | 
+ 31 |     # 1) 先收集邻居（全收或限量）
+ 32 |     if num_neighbors == -1:
+ 33 |         mask = torch.isin(row, nodes)
+ 34 |         neighbors = col[mask]
+ 35 |     else:
+ 36 |         # 简洁做法：对所有与种子相连的邻居做全局采样，期望规模 ≈ B * num_neighbors
+ 37 |         mask = torch.isin(row, nodes)
+ 38 |         neighbors_all = col[mask]
+ 39 |         target = nodes.numel() * int(num_neighbors)
+ 40 |         if neighbors_all.numel() > target > 0:
+ 41 |             perm = torch.randperm(neighbors_all.numel(), device=device)[:target]
+ 42 |             neighbors = neighbors_all[perm]
+ 43 |         else:
+ 44 |             neighbors = neighbors_all
+ 45 | 
+ 46 |     # 2) 子图节点集合：种子 ∪ 采样邻居
+ 47 |     subgraph_nodes = torch.unique(torch.cat([nodes, neighbors], dim=0))
+ 48 | 
+ 49 |     # 3) **关键修复**：仅保留子图内部的边（src/dst 都在 subgraph_nodes）
+ 50 |     mask_src = torch.isin(row, subgraph_nodes)
+ 51 |     mask_dst = torch.isin(col, subgraph_nodes)
+ 52 |     edge_mask = mask_src & mask_dst
+ 53 |     subgraph_edge_index_global = edge_index_full[:, edge_mask]  # 仍是“全局 id”
+ 54 | 
+ 55 |     # 4) 将全局 id 映射到局部 id（纯 Torch，避免 Python 循环/字典）
+ 56 |     subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)  # searchsorted 需要有序
+ 57 |     src_global = subgraph_edge_index_global[0]
+ 58 |     dst_global = subgraph_edge_index_global[1]
+ 59 |     src_local = torch.searchsorted(subgraph_nodes_sorted, src_global)
+ 60 |     dst_local = torch.searchsorted(subgraph_nodes_sorted, dst_global)
+ 61 |     subgraph_edge_index = torch.stack([src_local, dst_local], dim=0)
+ 62 | 
+ 63 |     # 5) 种子节点的局部索引
+ 64 |     nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
+ 65 | 
+ 66 |     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
  67 | 
  68 | 
  69 | def set_seed(seed):
@@ -322,7 +320,7 @@
  75 |     """Function to print the logs in a nice tabular format."""
  76 |     args = vars(args)
  77 |     keys = sorted(args.keys())
- 78 |     t = Texttable() 
+ 78 |     t = Texttable()
  79 |     t.add_rows([["Parameter", "Value"]] +  [[k.replace("_"," "), args[k]] for k in keys])
  80 |     print(t.draw())
  81 | 
@@ -333,9 +331,9 @@
  86 |                  surrogate='triangle', sizes=[5, 2], concat=False, act='LIF'):
  87 | 
  88 |         super().__init__()
- 89 |         
+ 89 | 
  90 |         from spikenet.utils import RandomWalkSampler, Sampler, add_selfloops
- 91 |         
+ 91 | 
  92 |         tau = 1.0
  93 |         if sampler == 'rw':
  94 |             self.sampler = [RandomWalkSampler(
@@ -424,306 +422,289 @@
 177 | 
 178 | 
 179 | parser = argparse.ArgumentParser()
-180 | parser.add_argument("--model", nargs="?", default="spikenet",
-181 |                     help="Model to use ('spikenet', 'spikenetx'). (default: spikenet)")
-182 | parser.add_argument("--dataset", nargs="?", default="DBLP",
-183 |                     help="Datasets (DBLP, Tmall, Patent). (default: DBLP)")
-184 | parser.add_argument('--sizes', type=int, nargs='+', default=[5, 2], help='Neighborhood sampling size for each layer. (default: [5, 2])')
-185 | parser.add_argument('--hids', type=int, nargs='+',
-186 |                     default=[128, 10], help='Hidden units for each layer. (default: [128, 10])')
-187 | parser.add_argument("--aggr", nargs="?", default="mean",
-188 |                     help="Aggregate function ('mean', 'sum'). (default: 'mean')")
-189 | parser.add_argument("--sampler", nargs="?", default="sage",
-190 |                     help="Neighborhood Sampler, including uniform sampler from GraphSAGE ('sage') and random walk sampler ('rw'). (default: 'sage')")
-191 | parser.add_argument("--surrogate", nargs="?", default="sigmoid",
-192 |                     help="Surrogate function ('sigmoid', 'triangle', 'arctan', 'mg', 'super'). (default: 'sigmoid')")
-193 | parser.add_argument("--neuron", nargs="?", default="LIF",
-194 |                     help="Spiking neuron used for training. (IF, LIF, PLIF). (default: LIF")
-195 | parser.add_argument('--batch_size', type=int, default=1024,
-196 |                     help='Batch size for training. (default: 1024)')
-197 | parser.add_argument('--lr', type=float, default=5e-3,
-198 |                     help='Learning rate for training. (default: 5e-3)')
-199 | parser.add_argument('--train_size', type=float, default=0.4,
-200 |                     help='Ratio of nodes for training. (default: 0.4)')
-201 | parser.add_argument('--alpha', type=float, default=1.0,
-202 |                     help='Smooth factor for surrogate learning. (default: 1.0)')
-203 | parser.add_argument('--p', type=float, default=0.5,
-204 |                     help='Percentage of sampled neighborhoods for g_t. (default: 0.5)')
-205 | parser.add_argument('--dropout', type=float, default=0.65,
-206 |                     help='Dropout probability. (default: 0.65)')
-207 | parser.add_argument('--epochs', type=int, default=100,
-208 |                     help='Number of training epochs. (default: 100)')
-209 | parser.add_argument('--concat', action='store_true',
-210 |                     help='Whether to concat node representation and neighborhood representations. (default: False)')
-211 | parser.add_argument('--seed', type=int, default=2022,
-212 |                     help='Random seed for model. (default: 2022)')
-213 | parser.add_argument('--datapath', type=str, default='./data',
-214 |                     help='Wheres your data?, Default is ./data')
-215 | 
-216 | # SpikeNet-X specific args
-217 | parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeNet-X. (default: 4)')
-218 | parser.add_argument('--topk', type=int, default=16, help='Top-k neighbors for SpikeNet-X attention. (default: 16)')
-219 | parser.add_argument('--W', type=int, default=32, help='Time window size for SpikeNet-X. (default: 32)')
-220 | parser.add_argument('--attn_impl', type=str, default='dense', choices=['dense','sparse'],
-221 |                     help='Attention kernel for SpikeNet-X: "dense" (recommended for subgraph) or "sparse". (default: "dense")')
-222 | parser.add_argument('--readout', type=str, default='mean', choices=['last','mean'],
-223 |                     help="Temporal readout for logits. (default: 'mean')")
-224 | 
-225 | # 新增：模型保存、加载与测试参数
-226 | parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
-227 |                     help='Directory to save model checkpoints. (default: checkpoints)')
-228 | parser.add_argument('--resume_path', type=str, default=None,
-229 |                     help='Path to a checkpoint file to resume training from. (default: None)')
-230 | parser.add_argument('--test_model_path', type=str, default=None,
-231 |                     help='Path to a model file to load for testing only. (default: None)')
-232 | 
-233 | 
-234 | try:
-235 |     args = parser.parse_args()
-236 |     args.test_size = 1 - args.train_size
-237 |     args.train_size = args.train_size - 0.05
-238 |     args.val_size = 0.05
-239 |     args.split_seed = 42
-240 |     tab_printer(args)
-241 | except:
-242 |     parser.print_help()
-243 |     exit(0)
+180 | # 更新命令行参数以反映新模型名称
+181 | parser.add_argument("--model", nargs="?", default="spikenet",
+182 |                     help="Model to use ('spikenet', 'spiketdanet'). (default: spikenet)")
+183 | parser.add_argument("--dataset", nargs="?", default="DBLP",
+184 |                     help="Datasets (DBLP, Tmall, Patent). (default: DBLP)")
+185 | parser.add_argument('--sizes', type=int, nargs='+', default=[5, 2], help='Neighborhood sampling size for each layer. (default: [5, 2])')
+186 | parser.add_argument('--hids', type=int, nargs='+',
+187 |                     default=[128, 10], help='Hidden units for each layer. (default: [128, 10])')
+188 | parser.add_argument("--aggr", nargs="?", default="mean",
+189 |                     help="Aggregate function ('mean', 'sum'). (default: 'mean')")
+190 | parser.add_argument("--sampler", nargs="?", default="sage",
+191 |                     help="Neighborhood Sampler, including uniform sampler from GraphSAGE ('sage') and random walk sampler ('rw'). (default: 'sage')")
+192 | parser.add_argument("--surrogate", nargs="?", default="sigmoid",
+193 |                     help="Surrogate function ('sigmoid', 'triangle', 'arctan', 'mg', 'super'). (default: 'sigmoid')")
+194 | parser.add_argument("--neuron", nargs="?", default="LIF",
+195 |                     help="Spiking neuron used for training. (IF, LIF, PLIF). (default: LIF")
+196 | parser.add_argument('--batch_size', type=int, default=1024,
+197 |                     help='Batch size for training. (default: 1024)')
+198 | parser.add_argument('--lr', type=float, default=5e-3,
+199 |                     help='Learning rate for training. (default: 5e-3)')
+200 | parser.add_argument('--train_size', type=float, default=0.4,
+201 |                     help='Ratio of nodes for training. (default: 0.4)')
+202 | parser.add_argument('--alpha', type=float, default=1.0,
+203 |                     help='Smooth factor for surrogate learning. (default: 1.0)')
+204 | parser.add_argument('--p', type=float, default=0.5,
+205 |                     help='Percentage of sampled neighborhoods for g_t. (default: 0.5)')
+206 | parser.add_argument('--dropout', type=float, default=0.65,
+207 |                     help='Dropout probability. (default: 0.65)')
+208 | parser.add_argument('--epochs', type=int, default=100,
+209 |                     help='Number of training epochs. (default: 100)')
+210 | parser.add_argument('--concat', action='store_true',
+211 |                     help='Whether to concat node representation and neighborhood representations. (default: False)')
+212 | parser.add_argument('--seed', type=int, default=2022,
+213 |                     help='Random seed for model. (default: 2022)')
+214 | parser.add_argument('--datapath', type=str, default='./data',
+215 |                     help='Wheres your data?, Default is ./data')
+216 | 
+217 | # SpikeTDANet specific args
+218 | parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeTDANet. (default: 4)')
+219 | parser.add_argument('--W', type=int, default=32, help='Time window size for SpikeTDANet. (default: 32)')
+220 | parser.add_argument('--readout', type=str, default='mean', choices=['last','mean'],
+221 |                     help="Temporal readout for logits. (default: 'mean')")
+222 | 
+223 | # 新增：模型保存、加载与测试参数
+224 | parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
+225 |                     help='Directory to save model checkpoints. (default: checkpoints)')
+226 | parser.add_argument('--resume_path', type=str, default=None,
+227 |                     help='Path to a checkpoint file to resume training from. (default: None)')
+228 | parser.add_argument('--test_model_path', type=str, default=None,
+229 |                     help='Path to a model file to load for testing only. (default: None)')
+230 | 
+231 | 
+232 | try:
+233 |     args = parser.parse_args()
+234 |     args.test_size = 1 - args.train_size
+235 |     args.train_size = args.train_size - 0.05
+236 |     args.val_size = 0.05
+237 |     args.split_seed = 42
+238 |     tab_printer(args)
+239 | except:
+240 |     parser.print_help()
+241 |     exit(0)
+242 | 
+243 | assert len(args.hids) == len(args.sizes), "must be equal!"
 244 | 
-245 | assert len(args.hids) == len(args.sizes), "must be equal!"
-246 | 
-247 | if args.dataset.lower() == "dblp":
-248 |     data = dataset.DBLP(root = args.datapath)
-249 | elif args.dataset.lower() == "tmall":
-250 |     data = dataset.Tmall(root = args.datapath)
-251 | elif args.dataset.lower() == "patent":
-252 |     data = dataset.Patent(root = args.datapath)
-253 | else:
-254 |     raise ValueError(
-255 |         f"{args.dataset} is invalid. Only datasets (dblp, tmall, patent) are available.")
-256 | 
-257 | # train:val:test
-258 | data.split_nodes(train_size=args.train_size, val_size=args.val_size,
-259 |                  test_size=args.test_size, random_state=args.split_seed)
+245 | if args.dataset.lower() == "dblp":
+246 |     data = dataset.DBLP(root = args.datapath)
+247 | elif args.dataset.lower() == "tmall":
+248 |     data = dataset.Tmall(root = args.datapath)
+249 | elif args.dataset.lower() == "patent":
+250 |     data = dataset.Patent(root = args.datapath)
+251 | else:
+252 |     raise ValueError(
+253 |         f"{args.dataset} is invalid. Only datasets (dblp, tmall, patent) are available.")
+254 | 
+255 | # train:val:test
+256 | data.split_nodes(train_size=args.train_size, val_size=args.val_size,
+257 |                  test_size=args.test_size, random_state=args.split_seed)
+258 | 
+259 | set_seed(args.seed)
 260 | 
-261 | set_seed(args.seed)
+261 | device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 262 | 
-263 | device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+263 | y = data.y.to(device)
 264 | 
-265 | y = data.y.to(device)
-266 | 
-267 | train_loader = DataLoader(data.train_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=True)
-268 | val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else data.val_nodes.tolist(),
-269 |                         pin_memory=False, batch_size=args.batch_size, shuffle=False)
-270 | test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=False)
-271 | 
-272 | if args.model == 'spikenetx':
-273 |     
-274 |     def train_spikenetx():
-275 |         model.train()
-276 |         total_loss = 0
-277 |         # Let's use a fixed number of neighbors for now to control memory
-278 |         num_neighbors_to_sample = 10 
-279 |         for nodes in tqdm(train_loader, desc='Training'):
-280 |             nodes = nodes.to(device)
-281 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
-282 |             
-283 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
-284 |             # --- 强校验：子图边必须是局部 id，且与特征 N 一致 ---
-285 |             
-286 |             N_sub = subgraph_nodes.numel()
-287 |             assert subgraph_edge_index.dtype == torch.long, "subgraph_edge_index 必须是 torch.long（int64）"
-288 |             assert subgraph_edge_index.numel() > 0, "子图没有边（可能邻居采样太小或图太稀疏）"
-289 |             assert int(subgraph_edge_index.max().item()) < N_sub and int(subgraph_edge_index.min().item()) >= 0, \
-290 |                 f"边索引越界：[{int(subgraph_edge_index.min())}, {int(subgraph_edge_index.max())}]，但 N_sub={N_sub}"
-291 |             # H0_subgraph 形状应为 [T, N_sub, d_in]
-292 |             assert H0_subgraph.size(1) == N_sub, f"H0_subgraph 第二维应等于 N_sub，但拿到 {H0_subgraph.size()} vs N_sub={N_sub}"
+265 | train_loader = DataLoader(data.train_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=True)
+266 | val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else data.val_nodes.tolist(),
+267 |                         pin_memory=False, batch_size=args.batch_size, shuffle=False)
+268 | test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=False)
+269 | 
+270 | # 更新模型选择逻辑
+271 | if args.model == 'spiketdanet':
+272 | 
+273 |     def train_model():
+274 |         model.train()
+275 |         total_loss = 0
+276 |         num_neighbors_to_sample = 10
+277 |         for nodes in tqdm(train_loader, desc='Training'):
+278 |             nodes = nodes.to(device)
+279 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
+280 | 
+281 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
+282 | 
+283 |             N_sub = subgraph_nodes.numel()
+284 |             if subgraph_edge_index.numel() > 0:
+285 |                 assert int(subgraph_edge_index.max().item()) < N_sub and int(subgraph_edge_index.min().item()) >= 0, \
+286 |                     f"边索引越界：[{int(subgraph_edge_index.min())}, {int(subgraph_edge_index.max())}]，但 N_sub={N_sub}"
+287 |             assert H0_subgraph.size(1) == N_sub, f"H0_subgraph 第二维应等于 N_sub，但拿到 {H0_subgraph.size()} vs N_sub={N_sub}"
+288 | 
+289 |             optimizer.zero_grad()
+290 | 
+291 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
+292 |             subgraph_logits = output['logits']
 293 | 
-294 |             optimizer.zero_grad()
-295 |             
-296 |             # The model's output `repr` and `logits` are for all nodes in the subgraph
-297 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
-298 |             subgraph_logits = output['logits']
-299 | 
-300 |             # We only compute the loss on the seed nodes of the batch
-301 |             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
-302 |             
-303 |             # ---- 脉冲率正则（稳定早期训练，目标平均放电率≈0.1）
-304 |             spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
-305 |             if epoch > 10:
-306 |                 loss = loss + 2e-5 * (spike_rate - 0.1).abs()
-307 |             loss.backward()
-308 |             optimizer.step()
-309 |             total_loss += loss.item()
-310 |         return total_loss / len(train_loader)
-311 | 
-312 |     @torch.no_grad()
-313 |     def test_spikenetx(loader):
-314 |         model.eval()
-315 |         logits_list = []
-316 |         labels_list = []
-317 |         num_neighbors_to_sample = 25 # Use the same for testing
-318 |         for nodes in tqdm(loader, desc='Testing'):
-319 |             nodes = nodes.to(device)
-320 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
-321 |             
-322 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
-323 |             
-324 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
-325 |             subgraph_logits = output['logits']
-326 |             
-327 |             logits_list.append(subgraph_logits[nodes_local_index].cpu())
-328 |             labels_list.append(y[nodes].cpu())
-329 |         
-330 |         logits = torch.cat(logits_list, dim=0).argmax(1)
-331 |         labels = torch.cat(labels_list, dim=0)
-332 | 
-333 |         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
-334 |         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
-335 |         return macro, micro
-336 |     
-337 |     # --- SpikeNet-X Training and Evaluation (with batching) ---
-338 | 
-339 |     # 1. Data Preparation (Full graph data)
-340 |     print("Preparing data for SpikeNet-X...")
-341 |     T = len(data)
-342 |     N = data.num_nodes
-343 |     d_in = data.num_features
-344 |     
-345 |     edge_list = [snapshot.edge_index for snapshot in data]
-346 |     edge_index_full = torch.unique(torch.cat(edge_list, dim=1), dim=1).to(device)
-347 |     H0_full = torch.stack([snapshot.x for snapshot in data], dim=0).to(device)
-348 |     time_idx_full = torch.arange(T, device=device)
-349 | 
-350 |     # 2. Model, Optimizer, Loss
-351 |     model = SpikeNetX(
-352 |         d_in=d_in,
-353 |         d=args.hids[0],
-354 |         layers=len(args.sizes),
-355 |         heads=args.heads,
-356 |         out_dim=data.num_classes,
-357 |         topk=args.topk,
-358 |         W=args.W,
-359 |         attn_impl=args.attn_impl,
-360 |         readout=args.readout,        # 新增：使用 mean 读出
-361 |         lif_tau_theta=0.95,          # 更“活”的神经元
-362 |         lif_gamma=0.20,
-363 |         lif_beta=1.0,                # 先用 1.0（见第 4 步 10% epoch 后切回 2.0）
-364 |     ).to(device)
-365 | 
-366 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-367 |     loss_fn = nn.CrossEntropyLoss()
-368 |     
-369 |     
-370 |     # --- Test-only mode ---
-371 |     if args.test_model_path:
-372 |         print(f"Loading model from {args.test_model_path} for testing...")
-373 |         checkpoint = torch.load(args.test_model_path, map_location=device)
-374 |         model.load_state_dict(checkpoint['model_state_dict'])
-375 |         test_macro, test_micro = test_spikenetx(test_loader)
-376 |         print(f"Test Results: Macro-F1={test_macro:.4f}, Micro-F1={test_micro:.4f}")
-377 |         exit(0)
-378 | 
-379 | 
-380 | 
-381 |     # 3. Training Loop
-382 |     start_epoch = 1
-383 |     best_val_metric = 0
-384 |     best_test_metric = (0, 0)
-385 | 
-386 |     # --- Resume from checkpoint ---
-387 |     if args.resume_path:
-388 |         if os.path.exists(args.resume_path):
-389 |             print(f"Resuming training from {args.resume_path}...")
-390 |             checkpoint = torch.load(args.resume_path, map_location=device)
-391 |             model.load_state_dict(checkpoint['model_state_dict'])
-392 |             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-393 |             start_epoch = checkpoint['epoch'] + 1
-394 |             best_val_metric = checkpoint.get('best_val_metric', 0) # Use .get for backward compatibility
-395 |             print(f"Resumed from epoch {start_epoch-1}. Best val metric so far: {best_val_metric:.4f}")
-396 |         else:
-397 |             print(f"Warning: Checkpoint path {args.resume_path} not found. Starting from scratch.")
-398 | 
-399 |     print("Starting SpikeNet-X training...")
-400 |     start = time.time()
-401 |     for epoch in range(start_epoch, args.epochs + 1):
-402 |         if epoch == int(0.1 * args.epochs):
-403 |             for blk in model.blocks:
-404 |                 blk.neuron.beta = 2.0
-405 |                 
-406 |         train_spikenetx()
-407 |         val_metric = test_spikenetx(val_loader)
-408 |         test_metric = test_spikenetx(test_loader)
-409 |         
-410 |         is_best = val_metric[1] > best_val_metric
-411 |         if is_best:
-412 |             best_val_metric = val_metric[1]
-413 |             best_test_metric = test_metric
-414 | 
-415 |             # --- Save checkpoint ---
-416 |             os.makedirs(args.checkpoint_dir, exist_ok=True)
-417 |             checkpoint_path = os.path.join(args.checkpoint_dir, f'best_model_{args.dataset}.pth')
-418 |             torch.save({
-419 |                 'epoch': epoch,
-420 |                 'model_state_dict': model.state_dict(),
-421 |                 'optimizer_state_dict': optimizer.state_dict(),
-422 |                 'best_val_metric': best_val_metric,
-423 |                 'test_metric_at_best_val': test_metric,
-424 |             }, checkpoint_path)
-425 |             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
+294 |             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
+295 | 
+296 |             spike_rate = output['S_list'].float().mean()
+297 |             if epoch > 10:
+298 |                 loss = loss + 2e-5 * (spike_rate - 0.1).abs()
+299 |             loss.backward()
+300 |             optimizer.step()
+301 |             total_loss += loss.item()
+302 |         return total_loss / len(train_loader)
+303 | 
+304 |     @torch.no_grad()
+305 |     def test_model(loader):
+306 |         model.eval()
+307 |         logits_list = []
+308 |         labels_list = []
+309 |         num_neighbors_to_sample = 25
+310 |         for nodes in tqdm(loader, desc='Testing'):
+311 |             nodes = nodes.to(device)
+312 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
+313 | 
+314 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
+315 | 
+316 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
+317 |             subgraph_logits = output['logits']
+318 | 
+319 |             logits_list.append(subgraph_logits[nodes_local_index].cpu())
+320 |             labels_list.append(y[nodes].cpu())
+321 | 
+322 |         logits = torch.cat(logits_list, dim=0).argmax(1)
+323 |         labels = torch.cat(labels_list, dim=0)
+324 | 
+325 |         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
+326 |         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
+327 |         return macro, micro
+328 | 
+329 |     # --- SpikeTDANet Training and Evaluation ---
+330 | 
+331 |     # 1. Data Preparation (Full graph data)
+332 |     print("Preparing data for SpikeTDANet...")
+333 |     T = len(data)
+334 |     N = data.num_nodes
+335 |     d_in = data.num_features
+336 | 
+337 |     edge_list = [snapshot.edge_index for snapshot in data]
+338 |     edge_index_full = torch.unique(torch.cat(edge_list, dim=1), dim=1).to(device)
+339 |     H0_full = torch.stack([snapshot.x for snapshot in data], dim=0).to(device)
+340 |     time_idx_full = torch.arange(T, device=device)
+341 | 
+342 |     # 2. Model, Optimizer, Loss
+343 |     model = SpikeTDANet(
+344 |         d_in=d_in,
+345 |         d=args.hids[0],
+346 |         layers=len(args.sizes),
+347 |         heads=args.heads,
+348 |         W=args.W,
+349 |         out_dim=data.num_classes,
+350 |         readout=args.readout,
+351 |         lif_tau_theta=0.95,
+352 |         lif_gamma=0.20,
+353 |         lif_beta=1.0,
+354 |     ).to(device)
+355 | 
+356 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+357 |     loss_fn = nn.CrossEntropyLoss()
+358 | 
+359 | 
+360 |     # --- Test-only mode ---
+361 |     if args.test_model_path:
+362 |         print(f"Loading model from {args.test_model_path} for testing...")
+363 |         checkpoint = torch.load(args.test_model_path, map_location=device)
+364 |         model.load_state_dict(checkpoint['model_state_dict'])
+365 |         test_macro, test_micro = test_model(test_loader)
+366 |         print(f"Test Results: Macro-F1={test_macro:.4f}, Micro-F1={test_micro:.4f}")
+367 |         exit(0)
+368 | 
+369 |     # 3. Training Loop
+370 |     start_epoch = 1
+371 |     best_val_metric = 0
+372 |     best_test_metric = (0, 0)
+373 | 
+374 |     # --- Resume from checkpoint ---
+375 |     if args.resume_path:
+376 |         if os.path.exists(args.resume_path):
+377 |             print(f"Resuming training from {args.resume_path}...")
+378 |             checkpoint = torch.load(args.resume_path, map_location=device)
+379 |             model.load_state_dict(checkpoint['model_state_dict'])
+380 |             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+381 |             start_epoch = checkpoint['epoch'] + 1
+382 |             best_val_metric = checkpoint.get('best_val_metric', 0)
+383 |             print(f"Resumed from epoch {start_epoch-1}. Best val metric so far: {best_val_metric:.4f}")
+384 |         else:
+385 |             print(f"Warning: Checkpoint path {args.resume_path} not found. Starting from scratch.")
+386 | 
+387 |     print("Starting SpikeTDANet training...")
+388 |     start = time.time()
+389 |     for epoch in range(start_epoch, args.epochs + 1):
+390 |         if epoch == int(0.1 * args.epochs):
+391 |             for layer in model.layers:
+392 |                 layer.lif_cell.beta = 2.0
+393 | 
+394 |         train_model()
+395 |         val_metric = test_model(val_loader)
+396 |         test_metric = test_model(test_loader)
+397 | 
+398 |         is_best = val_metric[1] > best_val_metric
+399 |         if is_best:
+400 |             best_val_metric = val_metric[1]
+401 |             best_test_metric = test_metric
+402 | 
+403 |             os.makedirs(args.checkpoint_dir, exist_ok=True)
+404 |             checkpoint_path = os.path.join(args.checkpoint_dir, f'best_model_{args.dataset}.pth')
+405 |             torch.save({
+406 |                 'epoch': epoch,
+407 |                 'model_state_dict': model.state_dict(),
+408 |                 'optimizer_state_dict': optimizer.state_dict(),
+409 |                 'best_val_metric': best_val_metric,
+410 |                 'test_metric_at_best_val': test_metric,
+411 |             }, checkpoint_path)
+412 |             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
+413 | 
+414 |         end = time.time()
+415 |         print(
+416 |             f'Epoch: {epoch:03d}, Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
+417 |             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
+418 |         )
+419 | 
+420 | else:
+421 |     # --- Original SpikeNet Training and Evaluation ---
+422 |     model = SpikeNet(data.num_features, data.num_classes, alpha=args.alpha,
+423 |                      dropout=args.dropout, sampler=args.sampler, p=args.p,
+424 |                      aggr=args.aggr, concat=args.concat, sizes=args.sizes, surrogate=args.surrogate,
+425 |                      hids=args.hids, act=args.neuron, bias=True).to(device)
 426 | 
-427 |         end = time.time()
-428 |         print(
-429 |             f'Epoch: {epoch:03d}, Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
-430 |             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
-431 |         )
-432 | 
-433 | else:
-434 |     # --- Original SpikeNet Training and Evaluation ---
-435 |     model = SpikeNet(data.num_features, data.num_classes, alpha=args.alpha,
-436 |                      dropout=args.dropout, sampler=args.sampler, p=args.p,
-437 |                      aggr=args.aggr, concat=args.concat, sizes=args.sizes, surrogate=args.surrogate,
-438 |                      hids=args.hids, act=args.neuron, bias=True).to(device)
-439 | 
-440 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-441 |     loss_fn = nn.CrossEntropyLoss()
-442 | 
-443 |     def train():
-444 |         model.train()
-445 |         for nodes in tqdm(train_loader, desc='Training'):
-446 |             optimizer.zero_grad()
-447 |             loss_fn(model(nodes), y[nodes]).backward()
-448 |             optimizer.step()
-449 | 
-450 |     @torch.no_grad()
-451 |     def test(loader):
-452 |         model.eval()
-453 |         logits = []
-454 |         labels = []
-455 |         for nodes in loader:
-456 |             logits.append(model(nodes))
-457 |             labels.append(y[nodes])
-458 |         logits = torch.cat(logits, dim=0).cpu()
-459 |         labels = torch.cat(labels, dim=0).cpu()
-460 |         logits = logits.argmax(1)
-461 |         metric_macro = metrics.f1_score(labels, logits, average='macro')
-462 |         metric_micro = metrics.f1_score(labels, logits, average='micro')
-463 |         return metric_macro, metric_micro
-464 | 
-465 |     best_val_metric = test_metric = 0
-466 |     start = time.time()
-467 |     for epoch in range(1, args.epochs + 1):
-468 |         train()
-469 |         val_metric, test_metric = test(val_loader), test(test_loader)
-470 |         if val_metric[1] > best_val_metric:
-471 |             best_val_metric = val_metric[1]
-472 |             best_test_metric = test_metric
-473 |         end = time.time()
-474 |         print(
-475 |             f'Epoch: {epoch:03d}, Val: {val_metric[1]:.4f}, Test: {test_metric[1]:.4f}, Best: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time elapsed {end-start:.2f}s')
-476 | 
-477 |     # save bianry node embeddings (spikes)
-478 |     # emb = model.encode(torch.arange(data.num_nodes)).cpu()
-479 |     # torch.save(emb, 'emb.pth')
+427 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+428 |     loss_fn = nn.CrossEntropyLoss()
+429 | 
+430 |     def train():
+431 |         model.train()
+432 |         for nodes in tqdm(train_loader, desc='Training'):
+433 |             optimizer.zero_grad()
+434 |             loss_fn(model(nodes), y[nodes]).backward()
+435 |             optimizer.step()
+436 | 
+437 |     @torch.no_grad()
+438 |     def test(loader):
+439 |         model.eval()
+440 |         logits = []
+441 |         labels = []
+442 |         for nodes in loader:
+443 |             logits.append(model(nodes))
+444 |             labels.append(y[nodes])
+445 |         logits = torch.cat(logits, dim=0).cpu()
+446 |         labels = torch.cat(labels, dim=0).cpu()
+447 |         logits = logits.argmax(1)
+448 |         metric_macro = metrics.f1_score(labels, logits, average='macro')
+449 |         metric_micro = metrics.f1_score(labels, logits, average='micro')
+450 |         return metric_macro, metric_micro
+451 | 
+452 |     best_val_metric = test_metric = 0
+453 |     start = time.time()
+454 |     for epoch in range(1, args.epochs + 1):
+455 |         train()
+456 |         val_metric, test_metric = test(val_loader), test(test_loader)
+457 |         if val_metric[1] > best_val_metric:
+458 |             best_val_metric = val_metric[1]
+459 |             best_test_metric = test_metric
+460 |         end = time.time()
+461 |         print(
+462 |             f'Epoch: {epoch:03d}, Val: {val_metric[1]:.4f}, Test: {test_metric[1]:.4f}, Best: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time elapsed {end-start:.2f}s')
 ```
 
 ## File: F:\SomeProjects\CSGNN\main_static.py
@@ -946,239 +927,6 @@
 207 | # torch.save(emb, 'emb.pth')
 ```
 
-## File: F:\SomeProjects\CSGNN\README.md
-
-- Extension: .md
-- Language: markdown
-- Size: 8506 bytes
-- Created: 2025-08-21 17:29:04
-- Modified: 2025-09-14 15:06:45
-
-### Code
-
-```markdown
-  1 | # Abstract
-  2 | 
-  3 | Recent years have seen a surge in research on dynamic graph representation learning, which aims to model temporal graphs that are dynamic and evolving constantly over time. However, current work typically models graph dynamics with recurrent neural networks (RNNs), making them suffer seriously from computation and memory overheads on large temporal graphs. So far, scalability of dynamic graph representation learning on large temporal graphs remains one of the major challenges. In this paper, we present a scalable framework, namely SpikeNet, to efficiently capture the temporal and structural patterns of temporal graphs. We explore a new direction in that we can capture the evolving dynamics of temporal graphs with spiking neural networks (SNNs) instead of RNNs. As a low-power alternative to RNNs, SNNs explicitly model graph dynamics as spike trains of neuron populations and enable spike-based propagation in an efficient way. Experiments on three large real-world temporal graph datasets demonstrate that SpikeNet outperforms strong baselines on the temporal node classification task with lower computational costs. Particularly, SpikeNet generalizes to a large temporal graph (2M nodes and 13M edges) with significantly fewer parameters and computation overheads.
-  4 | 
-  5 | # Dataset
-  6 | 
-  7 | ## Overview
-  8 | 
-  9 | |             | DBLP    | Tmall     | Patent     |
- 10 | | ----------- | ------- | --------- | ---------- |
- 11 | | #nodes      | 28,085  | 577,314   | 2,738,012  |
- 12 | | #edges      | 236,894 | 4,807,545 | 13,960,811 |
- 13 | | #time steps | 27      | 186       | 25         |
- 14 | | #classes    | 10      | 5         | 6          |
- 15 | 
- 16 | ## Download datasets
- 17 | 
- 18 | + DBLP
- 19 | + Tmall
- 20 | + Patent
- 21 | 
- 22 | All dataset can be found at [Dropbox](https://www.dropbox.com/sh/palzyh5box1uc1v/AACSLHB7PChT-ruN-rksZTCYa?dl=0).
- 23 | You can download the datasets and put them in the folder `data/`, e.g., `data/dblp`.
- 24 | 
- 25 | ## (Optional) Re-generate node features via DeepWalk
- 26 | 
- 27 | Since these datasets have no associated node features, we have generated node features via unsupervised DeepWalk method (saved as `.npy` format).
- 28 | You can find them at [Dropbox](https://www.dropbox.com/sh/palzyh5box1uc1v/AACSLHB7PChT-ruN-rksZTCYa?dl=0) as well.
- 29 | Only `dblp.npy` is uploaded due to size limit of Dropbox.
- 30 | 
- 31 | (Update) The generated node features for Tmall and Patent datasets have been shared through Aliyun Drive, and the link is as follows: https://www.aliyundrive.com/s/LH9qa9XZmXa.
- 32 | 
- 33 | Note: Since Aliyun Drive does not support direct sharing of npy files, you will need to manually change the file extension `.txt` to `.npy` after downloading.
- 34 | 
- 35 | We also provide the script to generate the node features. Alternatively, you can generate them on your end (this will take about minutes to hours):
- 36 | 
- 37 | ```bash
- 38 | python generate_feature.py --dataset dblp
- 39 | python generate_feature.py --dataset tmall --normalize
- 40 | python generate_feature.py --dataset patent --normalize
- 41 | ```
- 42 | 
- 43 | ## Overall file structure
- 44 | 
- 45 | ```bash
- 46 | SpikeNet
- 47 | ├── data
- 48 | │   ├── dblp
- 49 | │   │   ├── dblp.npy
- 50 | │   │   ├── dblp.txt
- 51 | │   │   └── node2label.txt
- 52 | │   ├── tmall
- 53 | │   │   ├── tmall.npy
- 54 | │   │   └── tmall.txt
- 55 | │   │   ├── node2label.txt
- 56 | │   ├── patent
- 57 | │   │   ├── patent_edges.json
- 58 | │   │   ├── patent_nodes.json
- 59 | │   │   └── patent.npy
- 60 | ├── figs
- 61 | │   └── spikenet.png
- 62 | ├── spikenet
- 63 | │   ├── ...
- 64 | ├── spikenet_x
- 65 | │   ├── __init__.py
- 66 | │   ├── delayline.py
- 67 | │   ├── lif_cell.py
- 68 | │   ├── masked_ops.py
- 69 | │   ├── minimal_example.py
- 70 | │   ├── model.py
- 71 | │   ├── rel_time.py
- 72 | │   ├── spikenetx_layer.py
- 73 | │   └── sta.py
- 74 | ├── generate_feature.py
- 75 | ├── main.py
- 76 | ├── main_static.py
- 77 | ├── README.md
- 78 | ├── setup.py
- 79 | ```
- 80 | 
- 81 | # Requirements
- 82 | 
- 83 | ```
- 84 | gensim==4.2.0
- 85 | numba==0.61.2
- 86 | numpy==1.25.2
- 87 | scikit_learn==1.1.3
- 88 | scipy==1.16.2
- 89 | setuptools==68.2.2
- 90 | texttable==1.7.0
- 91 | torch==1.13.0+cu117
- 92 | torch_cluster==1.6.3
- 93 | torch_geometric==2.6.1
- 94 | torch_scatter==2.1.0+pt113cu117
- 95 | tqdm==4.67.1
- 96 | ```
- 97 | 
- 98 | In fact, the version of these packages does not have to be consistent to ours. For example, Pytorch 1.6~-1.12 should also work.
- 99 | 
-100 | # Usage
-101 | 
-102 | ## Build neighborhood sampler
-103 | 
-104 | ```bash
-105 | python setup.py install
-106 | ```
-107 | 
-108 | ## Run SpikeNet
-109 | 
-110 | ```bash
-111 | # DBLP
-112 | python main.py --dataset dblp --hids 128 10 --batch_size 1024 --p 0.5 --train_size 0.4
-113 | python main.py --dataset dblp --hids 128 10 --batch_size 1024 --p 0.5 --train_size 0.6
-114 | python main.py --dataset dblp --hids 128 10 --batch_size 1024 --p 0.5 --train_size 0.8
-115 | 
-116 | # Tmall
-117 | python main.py --dataset tmall --hids 512 10 --batch_size 1024 --p 1.0 --train_size 0.4
-118 | python main.py --dataset tmall --hids 512 10 --batch_size 1024 --p 1.0 --train_size 0.6
-119 | python main.py --dataset tmall --hids 512 10 --batch_size 1024 --p 1.0 --train_size 0.8
-120 | 
-121 | # Patent
-122 | python main.py --dataset patent --hids 512 10 --batch_size 2048 --p 1.0 --train_size 0.4
-123 | python main.py --dataset patent --hids 512 10 --batch_size 2048 --p 1.0 --train_size 0.6
-124 | python main.py --dataset patent --hids 512 10 --batch_size 2048 --p 0.5 --train_size 0.8
-125 | ```
-126 | 
-127 | ## Run SpikeNet-X
-128 | 
-129 | SpikeNet-X is a new model variant that uses temporal attention. You can run it by specifying `--model spikenetx`.
-130 | 
-131 | ### Basic Training
-132 | 
-133 | This command starts a standard training run from scratch
-134 | 
-135 | ```bash
-136 | # DBLP Example
-137 | python main.py --model spikenetx --dataset dblp --hids 64 --sizes 2 --epochs 100 --lr 0.005 --heads 4 --topk 8 --W 8
-138 | ```
-139 | 
-140 | ### Training Workflow (with Checkpoints)
-141 | 
-142 | The training script now supports saving, resuming, and testing.
-143 | 
-144 | **1. Standard Training & Saving**
-145 | 
-146 | When you run a standard training, the script will automatically save the model with the best validation performance to the `checkpoints/` directory (or the directory specified by `--checkpoint_dir`).
-147 | 
-148 | ```bash
-149 | # The best model will be saved as checkpoints/best_model_DBLP.pth
-150 | python main.py --model spikenetx --dataset DBLP --epochs 100
-151 | ```
-152 | 
-153 | **2. Resuming Training**
-154 | 
-155 | If your training was interrupted, you can resume from the last saved checkpoint using the `--resume_path` argument.
-156 | 
-157 | ```bash
-158 | # This will load the model, optimizer, and epoch number from the checkpoint and continue training.
-159 | python main.py --model spikenetx --dataset DBLP --epochs 100 --resume_path checkpoints/best_model_DBLP.pth
-160 | ```
-161 | 
-162 | **3. Testing a Model**
-163 | 
-164 | To evaluate a trained model on the test set without running the full training loop, use the `--test_model_path` argument.
-165 | 
-166 | ```bash
-167 | # This will load the model, run evaluation on the test set, and print the results.
-168 | python main.py --model spikenetx --dataset DBLP --test_model_path checkpoints/best_model_DBLP.pth
-169 | ```
-170 | 
-171 | # On the extention to stastic graphs
-172 | 
-173 | Actually, SpikeNet is not only applicaple for temporal graphs, it is also straightforward to extend to stastic graphs by defining a time step hyperparameter $T$ manually.
-174 | In this way, the sampled subgraph at each time step naturally form graph snapshot. We can use SpikeNet to capture the *evolving* dynamics of sampled subgraphs.
-175 | Due to space limit, we did not discuss this part in our paper. However, we believe this is indeed necessary to show the effectiveness of our work.
-176 | 
-177 | We provide a simple example for the usage on stastic graphs datasets `Flickr` and `Reddit` (be sure you have PyTorch Geometric installed):
-178 | 
-179 | ```bash
-180 | # Flickr
-181 | python main_static.py --dataset flickr --surrogate super
-182 | 
-183 | # Reddit
-184 | python main_static.py --dataset reddit --surrogate super
-185 | ```
-186 | 
-187 | We report Micro-F1 score and the results are as follows:
-188 | 
-189 | | Method     | Flickr       | Reddit       |
-190 | | ---------- | ------------ | ------------ |
-191 | | GCN        | 0.492±0.003 | 0.933±0.000 |
-192 | | GraphSAGE  | 0.501±0.013 | 0.953±0.001 |
-193 | | FastGCN    | 0.504±0.001 | 0.924±0.001 |
-194 | | S-GCN      | 0.482±0.003 | 0.964±0.001 |
-195 | | AS-GCN     | 0.504±0.002 | 0.958±0.001 |
-196 | | ClusterGCN | 0.481±0.005 | 0.954±0.001 |
-197 | | GraphSAINT | 0.511±0.001 | 0.966±0.001 |
-198 | | SpikeNet   | 0.515±0.003 | 0.953±0.001 |
-199 | 
-200 | # Reference
-201 | 
-202 | ```bibtex
-203 | @inproceedings{li2023scaling,
-204 |   author    = {Jintang Li and
-205 |                Zhouxin Yu and
-206 |                Zulun Zhu and
-207 |                Liang Chen and
-208 |                Qi Yu and
-209 |                Zibin Zheng and
-210 |                Sheng Tian and
-211 |                Ruofan Wu and
-212 |                Changhua Meng},
-213 |   title     = {Scaling Up Dynamic Graph Representation Learning via Spiking Neural
-214 |                Networks},
-215 |   booktitle = {{AAAI}},
-216 |   pages     = {8588--8596},
-217 |   publisher = {{AAAI} Press},
-218 |   year      = {2023}
-219 | }
-220 | ```
-```
-
 ## File: F:\SomeProjects\CSGNN\setup.py
 
 - Extension: .py
@@ -1203,549 +951,6 @@
 11 |         "build_ext": BuildExtension
 12 |     }
 13 | )
-```
-
-## File: F:\SomeProjects\CSGNN\提示词.md
-
-- Extension: .md
-- Language: markdown
-- Size: 14446 bytes
-- Created: 2025-08-22 12:38:17
-- Modified: 2025-08-22 12:38:19
-
-### Code
-
-```markdown
-  1 | # SpikeNet-X 技术规格（实现提示词）
-  2 | 
-  3 | ## 0. 目标与总览
-  4 | **目标**：在动态图/时序图上，用事件驱动的**脉冲时序注意力聚合（STA）**替换传统时间池化，并在其前端串联**可学习多延迟通路（DelayLine）**，显式建模关系传播的**时间错位与传播时延**，保持 SNN 的稀疏事件驱动与可解释性。
-  5 | 
-  6 | **层级结构（自上而下）**  
-  7 | 1) **DelayLine**：沿时间维的**因果深度可分离 1D 卷积**（K 个离散延迟 tap），学习不同延迟的响应；  
-  8 | 2) **STA-GNN Aggregator**：对邻居在过去时间的事件序列进行**因果多头注意力**，以**相对时间编码**与**脉冲门控**（surrogate）做软选择，并用 **Top-k 稀疏化**控制成本；  
-  9 | 3) **脉冲单元（LIF/GLIF）**：将上一步的聚合消息注入膜电位，阈值比较产生脉冲，使用代理梯度反传。
- 10 | 
- 11 | ---
- 12 | 
- 13 | ## 1. 记号与输入输出约定
- 14 | 
- 15 | - 时长 \(T\)、节点数 \(N\)、特征维 \(d_\text{in}\)、隐藏维 \(d\)、注意力头数 \(H\)、延迟 tap 数 \(K\)、相对时间编码维 \(d_\text{pe}\)。  
- 16 | - 默认采用**时间优先格式**：`H_tn` 表示 `[T, N, d]`；脉冲张量 `S` 为 `[T, N]`（0/1 或 {0,1} 的浮点）。  
- 17 | - 图结构用 `edge_index: LongTensor[2, E]`（PyG 风格），或邻接稀疏矩阵。若使用稠密掩码 `adj_mask: Bool[N, N]` 亦可。  
- 18 | - **Batch**：建议将多图拼成大图，用 `batch: LongTensor[N_total]` 指示归属；若必须 `B×N×T×d`，可在外层再套一维 batch 并展开为大图。  
- 19 | - **模块 API（核心）**：
- 20 |   - `LearnableDelayLine.forward(H: [T, N, d_in]) -> H̃: [T, N, d_in]`
- 21 |   - `SpikingTemporalAttention.forward(H̃: [T,N,d_qkv], S: [T,N], edge_index or adj_mask, time_idx: [T]) -> M: [T,N,d]`
- 22 |   - `LIFCell.forward(M: [T,N,d], state0) -> (S: [T,N], V: [T,N], aux)`  
- 23 |   其中 `d_qkv` 与 `d` 可相同或通过线性层投影。
- 24 | 
- 25 | ---
- 26 | 
- 27 | ## 2. DelayLine（可学习多延迟通路）
- 28 | 
- 29 | ### 原理
- 30 | 对每个节点、每个通道沿时间做**因果卷积**，学习对不同**传播时延**的权重偏好。  
- 31 | \[
- 32 | \tilde{h}_{t}^{(c)}=\sum_{k=0}^{K-1} w_k^{(c)} \cdot h_{t-k}^{(c)},\quad 
- 33 | w_k^{(c)}=\frac{\text{softplus}(u_k^{(c)})}{\sum_r \text{softplus}(u_r^{(c)})}\cdot \rho^k,\ \rho\in(0,1)
- 34 | \]
- 35 | - `softplus`+**归一化**保证稳定、可解释（权重非负，且随延迟指数折扣 \(\rho^k\)）。  
- 36 | - 支持**通道共享**（每层统一一组 \(\{w_k\}\)）或**逐通道**（推荐：逐通道但分组实现）。
- 37 | 
- 38 | ### 接口与形状
- 39 | - 入：`H: Float[T, N, d_in]`  
- 40 | - 出：`H_tilde: Float[T, N, d_in]`（与输入同形）  
- 41 | - 可选参数：`K=3~7`，`rho=0.85`，`per_channel=True`，`causal_pad='left'`。
- 42 | 
- 43 | ### 计算与实现要点
- 44 | - **实现**：等价 `groups=d_in` 的 `Conv1d`（深度可分离），输入先转置为 `[N*d_in, 1, T]` 做分组 1D 卷积后还原；或用自定义 `causal_depthwise_conv1d`。  
- 45 | - **复杂度**：\(O(T\cdot N\cdot d_\text{in}\cdot K)\)。  
- 46 | - **正则**（可选）：`L1(w)` 或 `Entropy(w)` 促进稀疏/清晰峰值。  
- 47 | - **边界**：对 `t<0` 采用零填充。
- 48 | 
- 49 | ---
- 50 | 
- 51 | ## 3. STA-GNN（脉冲时序注意力聚合）
- 52 | 
- 53 | ### 核心思想
- 54 | 在**因果掩码**与**邻接掩码**下，使用**相对时间编码**的多头注意力，让每个节点在时刻 \(t\) 选择来自邻居在**过去各时刻 \(t' \le t\)** 的关键事件，并用**脉冲发放**对注意力进行**门控**，保持事件驱动与可导性。
- 55 | 
- 56 | ### 相对时间编码 \(\phi(\Delta t)\)
- 57 | - 组合基函数（推荐维度 \(d_\text{pe}=8\)）：  
- 58 |   - 指数衰减：\(\exp(-\Delta t/\tau_m)\), \(\exp(-\Delta t/\tau_s)\)  
- 59 |   - 正弦基：\(\sin(\omega_r \Delta t),\ \cos(\omega_r \Delta t)\)（对数均匀频率）  
- 60 |   - 分桶 one-hot：\(\text{bucket}(\Delta t)\)（对数间隔）  
- 61 | - 预计算 `PE: Float[T, T, d_pe]`，仅在 \(t' \le t\) 使用。
- 62 | 
- 63 | ### 注意力计算（单头，后接 H 头拼接）
- 64 | 给定 `H̃`（DelayLine 之后）：
- 65 | \[
- 66 | \begin{aligned}
- 67 | q_{i,t}&=W_Q h_{i,t},\\
- 68 | k_{j,t'}&=W_K [h_{j,t'} \,\|\, \phi(t-t')],\\
- 69 | v_{j,t'}&=W_V h_{j,t'}.
- 70 | \end{aligned}
- 71 | \]
- 72 | **门控**：将源端脉冲 \(s_{j,t'}\in\{0,1\}\) 通过 surrogate \(\sigma_{\text{sur}}(\cdot)\) 映射到 \([0,1]\)，作为注意力值的可导缩放因子。  
- 73 | \[
- 74 | e_{i,t,j,t'}=\frac{q_{i,t}\cdot k_{j,t'}}{\sqrt{d/H}} + b_{\Delta t} \quad (\text{可选相对偏置})
- 75 | \]
- 76 | \[
- 77 | a_{i,t,j,t'}=\text{softmax}_{(j,t')\in\mathcal{N}(i),t'\le t}\big(e_{i,t,j,t'}\big)\cdot \sigma_{\text{sur}}(s_{j,t'})
- 78 | \]
- 79 | \[
- 80 | m_{i,t}=\sum_{t'\le t}\sum_{j\in\mathcal{N}(i)} a_{i,t,j,t'} \, v_{j,t'}
- 81 | \]
- 82 | 
- 83 | ### 稀疏化与掩码
- 84 | - **因果掩码**：仅允许 \(t'\le t\)。  
- 85 | - **邻接掩码**：仅允许 `j ∈ N(i)`。  
- 86 | - **时间窗**：限制 \(t-t'\le W\)（建议 `W∈[16,128]` 根据任务/显存选择）。  
- 87 | - **Top-k**：对每个 `(i,t)` 仅保留前 `k` 个 key（在 `(j,t')` 维度上），其余置零并重新归一化（`k=8~32`）。
- 88 | 
- 89 | ### 形状与接口
- 90 | - 入：  
- 91 |   - `H_tilde: Float[T, N, d_in]`  
- 92 |   - `S: Float[T, N]`（0/1）  
- 93 |   - `edge_index: Long[2, E]` 或 `adj_mask: Bool[N,N]`  
- 94 |   - `time_idx: Long[T]`（通常为 `torch.arange(T)`）  
- 95 | - 出：`M: Float[T, N, d]`  
- 96 | - 可选：`dropout_attn`, `attn_temperature`, `relative_bias=True/False`。
- 97 | 
- 98 | ### 复杂度与两种实现模式
- 99 | - **Dense 模式（小图/短序列）**：构建 `[T,T,N,N]` 掩码后矩阵化，配合 Top-k；实现简单，峰值显存较高。  
-100 | - **Sparse-edge 模式（推荐）**：以 `edge_index` 为骨架，仅对边上的 `(i,j)` 计算注意力；按时间窗为每条边滚动收集 \(t'\in[t-W,t]\) 的 key，使用分块与 `segment_softmax`。复杂度近似 \(O(H\cdot E\cdot W)\)。
-101 | 
-102 | ---
-103 | 
-104 | ## 4. 脉冲神经元（LIF/GLIF）与集成
-105 | 
-106 | ### LIF 更新（可换成你已有实现）
-107 | \[
-108 | \begin{aligned}
-109 | V_{i,t} &= \lambda V_{i,t-1}+ U m_{i,t} - \theta_{i,t-1} R_{i,t-1} \\
-110 | S_{i,t} &= \mathbb{1}[V_{i,t} > \theta_{i,t}] \\
-111 | V_{i,t} &\leftarrow V_{i,t} - S_{i,t}\cdot \theta_{i,t} \quad (\text{重置}) \\
-112 | \theta_{i,t} &= \tau_\theta \theta_{i,t-1} + \gamma S_{i,t-1} \quad (\text{自适应阈值，可选})
-113 | \end{aligned}
-114 | \]
-115 | - **反传**：使用 surrogate \(\sigma_{\text{sur}}'(V-\theta)\)（fast-tanh 或 piecewise-linear STE）。  
-116 | - **接口**：`LIFCell(M: [T,N,d]) -> S: [T,N], V: [T,N], (theta/R 等可选)`
-117 | 
-118 | ---
-119 | 
-120 | ## 5. SpikeNet-X 层与前向流程
-121 | 
-122 | ### SpikeNet-X 层伪接口
-123 | ```python
-124 | class SpikeNetXLayer(nn.Module):
-125 |     def __init__(self, d_in, d, heads=4, topk=16, W=64, K=5, rho=0.85,
-126 |                  use_rel_bias=True, attn_drop=0.1, temp=1.0, per_channel=True):
-127 |         self.delay = LearnableDelayLine(d_in, K, rho, per_channel=per_channel)
-128 |         self.sta   = SpikingTemporalAttention(d_in, d, heads, topk, W,
-129 |                                               use_rel_bias, attn_drop, temp)
-130 |         self.neuron = LIFCell(d, adaptive=True)  # 或接入你现有的 SNN 单元
-131 |         self.norm = LayerNorm(d)                 # 可选：Pre/LN
-132 |         self.ffn  = MLP(d, d)                    # 可选：残差前馈
-133 |     def forward(self, H, S_prev, edge_index, time_idx, adj_mask=None, batch=None):
-134 |         H̃ = self.delay(H)                                    # [T,N,d_in]
-135 |         M  = self.sta(H̃, S_prev, edge_index, time_idx, adj_mask)  # [T,N,d]
-136 |         S, V, aux = self.neuron(M)                            # [T,N], [T,N]
-137 |         Y = self.norm(M)                                      # 或对 M+FFN 做残差
-138 |         return S, V, Y, {"M": M, **aux}
-139 | ```
-140 | 
-141 | ### 整体网络（L 层堆叠）
-142 | - 时间维在外层循环或用并行张量化均可。推荐**张量化时间**（形状 `[T,N,·]`）以便 DelayLine 与 STA 使用缓存的 `PE`。  
-143 | - 层与层之间传递：`H_{l+1,t} = proj([H_{l,t} || Y_{l,t} || onehot(S_{l,t})])`（可选拼接上一层输出与脉冲 one-hot）。  
-144 | - 读出：  
-145 |   - 节点分类：`readout_t` 可择 `t=T` 或 `temporal_attention_pool`（轻量单头）  
-146 |   - 图级任务：按 batch 聚合（mean/max/attention）
-147 | 
-148 | ---
-149 | 
-150 | ## 6. 训练配方（默认值可直接用）
-151 | 
-152 | - **优化**：AdamW，`lr=2e-3`，`weight_decay=0.01`；线性 warmup 5% 步数；`grad_clip=1.0`。  
-153 | - **surrogate**：`fast_tanh`: \(\sigma'(x)=\beta(1-\tanh^2(\beta x))\)，`β=2.0`（前 10% epoch 用 `β=1.0` 软化）。  
-154 | - **正则**：  
-155 |   - 脉冲率 L1：\(\lambda_\text{spk}\in[1e-5,5e-5]\) 约束平均发放率；  
-156 |   - 注意力熵惩罚（温和）：\(\lambda_\text{ent}=1e-4\)；  
-157 |   - 延迟权重 L1/熵：\(\lambda_\text{delay}=1e-4\)。  
-158 | - **时间窗/稀疏**：`W=64`，`topk=16`（大图任务可改 `W=32, topk=8`）。  
-159 | - **混合精度**：AMP O2；**梯度检查点**：在 STA 内按 `(time block)` 分段。  
-160 | - **数据增强（可选）**：时间戳抖动（±1~2 tick），随机时间伸缩（0.9~1.1）。
-161 | 
-162 | ---
-163 | 
-164 | ## 7. 掩码与数值稳定性（务必实现）
-165 | 
-166 | 1) **softmax 掩码**：对被掩蔽位置赋 `-inf`（或非常负的数），再 softmax。  
-167 | 2) **Top-k**：在 logits 上选 k 大，再将非选中项 logits 置 `-inf`，避免“零后再归一”。  
-168 | 3) **温度**：`logits /= temp`（`temp∈[0.7,1.4]`），可缓解早期梯度噪声。  
-169 | 4) **归一**：DelayLine 权重用 `softplus`+`normalize`，数值安全加 `eps=1e-8`。  
-170 | 5) **空邻居/空窗口**：若 `(i,t)` 无可用 key，返回零向量（或残差直通 `h_{i,t}`）。
-171 | 
-172 | ---
-173 | 
-174 | ## 8. 复杂度与内存控制
-175 | 
-176 | - **理论**：STA 稀疏实现复杂度 \(O(H\cdot E\cdot W)\)，内存近似同量级；  
-177 | - **工程手段**：  
-178 |   - 分块时间 `T = sum(T_b)`，逐块缓存 `PE[t−t']`；  
-179 |   - 将 `edge_index` 排序（`coalesce`）以提升 `segment_softmax` 命中率；  
-180 |   - 对高入度节点可设**邻居 top-k**上限（先按入度采样邻居，再做时序 top-k）。
-181 | 
-182 | ---
-183 | 
-184 | ## 9. 相对时间编码实现建议
-185 | ```python
-186 | def rel_time_enc(time_idx, d_pe=8, taus=(4,16), n_freq=3):
-187 |     # time_idx: [T], return PE: [T, T, d_pe] for Δt>=0 else zero
-188 |     # channels: [exp(-Δt/τ_m), exp(-Δt/τ_s), sin/cos with log-spaced freq, log-bucket onehot]
-189 |     ...
-190 | ```
-191 | - 预计算仅对 \(\Delta t \in [0, W]\) 的子矩阵；其余赋零以节省显存。  
-192 | - 可选**相对偏置** \(b_{\Delta t}\)（标量表）：长度 `W+1` 的可学习向量。
-193 | 
-194 | ---
-195 | 
-196 | ## 10. 模块签名与断言（供代码生成器遵循）
-197 | 
-198 | ### `LearnableDelayLine`
-199 | - `__init__(d_in:int, K:int=5, rho:float=0.85, per_channel:bool=True)`.  
-200 | - `forward(H:[T,N,d_in])->[T,N,d_in]`.  
-201 | - **断言**：`K>=1`, `0<rho<1`, `H.dim()==3`.
-202 | 
-203 | ### `SpikingTemporalAttention`
-204 | - `__init__(d_in:int, d:int, heads:int=4, topk:int=16, W:int=64, use_rel_bias:bool=True, attn_drop:float=0.1, temp:float=1.0)`.  
-205 | - `forward(H_tilde:[T,N,d_in], S:[T,N], edge_index:Long[2,E], time_idx:Long[T], adj_mask:Optional[Bool[N,N]]=None) -> [T,N,d]`.  
-206 | - **断言**：`topk>=1`, `W>=1`, `heads*d_head==d`。  
-207 | - **稀疏实现关键步骤**：  
-208 |   1) 对每条边 `(j->i)` 构造过去窗口 `t'∈[t-W,t]` 的键集合；  
-209 |   2) 计算 `q(i,t)` 与 `k(j,t')`，加上相对编码后做点积；  
-210 |   3) 在每个 `(i,t)` 的候选集合上做 Top-k，再 masked-softmax；  
-211 |   4) 加 `attn_drop`，与 `v(j,t')` 加权求和。
-212 | 
-213 | ### `LIFCell`
-214 | - `__init__(d:int, lambda_mem:float=0.95, tau_theta:float=0.99, gamma:float=0.1, adaptive:bool=True, surrogate:str='fast_tanh', beta:float=2.0)`.  
-215 | - `forward(M:[T,N,d])->Tuple[S:[T,N], V:[T,N], aux:Dict]`.
-216 | 
-217 | ---
-218 | 
-219 | ## 11. 训练与日志（必须记录的指标）
-220 | 
-221 | - 任务指标：Micro/Macro-F1 或 AUC。  
-222 | - SNN 指标：平均发放率（全局/分层）、失活率（持续 0 发放）、爆发率（>50% 发放）。  
-223 | - STA 指标：平均注意力熵、Top-k 选择比例、相对时间分布（\(\Delta t\) 直方图）。  
-224 | - DelayLine 指标：`w_k` 的分布热图；`argmax k` 的频率。  
-225 | - 资源指标：每 step 时间、峰值显存。  
-226 | - **可视化**：`r_t` 与注意力重心的时间轨迹，`w_k` 热图，`Δt` 权重柱状图。
-227 | 
-228 | ---
-229 | 
-230 | ## 12. 消融与开关（实现为 config flags）
-231 | 
-232 | - `use_delayline: bool`（False = 仅 STA）  
-233 | - `use_sta: bool`（False = 回退到原时间池化）  
-234 | - `topk: int in {0->不裁剪, 8, 16, 32}`  
-235 | - `W: int`（时间窗）  
-236 | - `use_rel_bias: bool`（相对偏置）  
-237 | - `per_channel_delay: bool`  
-238 | - `surrogate_beta_warmup: bool`（早期软梯度）
-239 | 
-240 | ---
-241 | 
-242 | ## 13. 失败模式与守护
-243 | 
-244 | - **注意力过密/显存爆**：启用/减小 `topk` 与 `W`；`d_head` 降低；开启分块。  
-245 | - **延迟学成平滑**：对 `w_k` 加熵惩罚或“中心惩罚”鼓励峰化；  
-246 | - **梯度震荡**：`attn_temperature ↑`、`grad_clip=1.0`、`AdamW β2=0.99`；  
-247 | - **空邻居**：返回零向量并走残差；  
-248 | - **发放塌陷**：提高 `λ_spk` 下限、软化 surrogate（小 `β`）、降低阈值上调 `γ`。
-249 | 
-250 | ---
-251 | 
-252 | ## 14. 参考默认配置（YAML 片段）
-253 | 
-254 | ```yaml
-255 | model:
-256 |   d_in: 128
-257 |   d: 256
-258 |   layers: 3
-259 |   heads: 4
-260 |   topk: 16
-261 |   W: 64
-262 |   delayline:
-263 |     use: true
-264 |     K: 5
-265 |     rho: 0.85
-266 |     per_channel: true
-267 |   sta:
-268 |     use_rel_bias: true
-269 |     attn_drop: 0.1
-270 |     temp: 1.0
-271 |   lif:
-272 |     lambda_mem: 0.95
-273 |     tau_theta: 0.99
-274 |     gamma: 0.10
-275 |     surrogate: fast_tanh
-276 |     beta: 2.0
-277 | train:
-278 |   lr: 0.002
-279 |   weight_decay: 0.01
-280 |   grad_clip: 1.0
-281 |   amp: true
-282 |   seed: 42
-283 | regularization:
-284 |   l1_spike: 2.0e-5
-285 |   attn_entropy: 1.0e-4
-286 |   delay_reg: 1.0e-4
-287 | ```
-288 | 
-289 | ---
-290 | 
-291 | ## 15. 最小工作示例（形状检查伪代码）
-292 | ```python
-293 | T, N, d_in, d, H = 64, 1024, 128, 256, 4
-294 | H0 = torch.randn(T, N, d_in)
-295 | S0 = torch.zeros(T, N)  # 若首层无前序脉冲，可用全 1 门控或上层脉冲
-296 | edge_index = ...        # [2,E]
-297 | time_idx = torch.arange(T)
-298 | 
-299 | layer = SpikeNetXLayer(d_in, d, heads=H, topk=16, W=64, K=5, rho=0.85)
-300 | S, V, Y, aux = layer(H0, S0, edge_index, time_idx)
-301 | assert S.shape == (T, N) and Y.shape == (T, N, d)
-302 | ```
-303 | 
-304 | ---
-305 | 
-306 | ## 16. 写作要点（供注释/文档使用）
-307 | - **创新点**：将**邻居选择（空间）× 时间对齐（时序）**统一到**事件驱动注意力**，并通过 DelayLine 显式建模**传播时延**；  
-308 | - **可解释性**：输出 `w_k`、`Δt` 权重与注意力热区；  
-309 | - **可扩展性**：STA 与 DelayLine 均为**即插即用**，可替换到任意脉冲/非脉冲时序图骨干。
-310 | 
-311 | ---
-```
-
-## File: F:\SomeProjects\CSGNN\cline_docs\activeContext.md
-
-- Extension: .md
-- Language: markdown
-- Size: 2581 bytes
-- Created: 2025-08-22 11:30:37
-- Modified: 2025-09-15 01:01:24
-
-### Code
-
-```markdown
- 1 | # 当前工作
- 2 | 
- 3 | `SpikeNet-X` 的训练流程已成功调试完毕并得到功能增强。核心的 `RuntimeError` 已被定位并修复，同时增加了模型持久化和评估的关键工程能力，为后续的模型调优和实验奠定了坚实基础。
- 4 | 
- 5 | # 最近的变更
- 6 | 
- 7 | 1.  **修复 `RuntimeError`**:
- 8 |     *   **问题定位**: 使用 `torch.autograd.set_detect_anomaly(True)` 精准定位到 `spikenet_x/sta_sparse.py` 中 `forward` 函数内的 `in-place` 操作是导致梯度计算错误的根源。
- 9 |     *   **解决方案**: 对 `sta_sparse.py` 进行了重构，将循环内对 `max_dst` 张量的 `in-place` 更新，修改为先将各时间步的最大值暂存入一个列表，然后在循环外通过 `torch.stack` 和 `.max()` 操作计算最终结果，彻底消除了 `in-place` 操作，解决了 `RuntimeError`。
-10 |     *   **验证**: 模型已能在 DBLP 数据集上无错地完成多个周期的训练。
-11 | 
-12 | 2.  **增强训练框架**:
-13 |     *   **模型保存**: 在 `main.py` 中实现了检查点（checkpoint）保存机制。当模型在验证集上取得更优性能时，会自动将模型权重、优化器状态、当前周期数及最佳验证分数保存到指定的 `--checkpoint_dir` 目录中。
-14 |     *   **断点续训**: 增加了 `--resume_path` 参数，允许从指定的检查点文件恢复训练，无缝衔接之前的训练进度。
-15 |     *   **独立测试**: 增加了 `--test_model_path` 参数，支持加载一个已保存的模型并仅在测试集上运行评估，方便快速验证模型性能。
-16 | 
-17 | # 下一步计划
-18 | 
-19 | 随着训练流程的稳定和功能的完善，现在的重点是系统性地进行实验和模型优化。
-20 | 
-21 | - **核心任务**:
-22 |     1.  **完整训练与性能评估**:
-23 |         *   在 DBLP 数据集上运行一次完整的训练（例如，100个周期），并保存最佳模型。
-24 |         *   使用独立的测试功能评估最终模型的性能指标（Macro-F1, Micro-F1）。
-25 |     2.  **超参数调优**:
-26 |         *   根据基线模型的性能，系统性地调整关键超参数，如学习率 (`--lr`)、时间窗口 (`--W`)、注意力头数 (`--heads`)、Top-K邻居 (`--topk`) 等，以寻找最优配置。
-27 |     3.  **结果分析与文档记录**:
-28 |         *   分析不同超参数对模型性能的影响。
-29 |         *   在 `progress.md` 中记录每次实验的结果和发现。
-30 | 
-31 | - **建议**:
-32 |     *   首先启动一个完整的 DBLP 训练任务，以获得一个基线性能结果。
-33 |     *   并行地，可以开始设计超参数搜索的实验方案。
-```
-
-## File: F:\SomeProjects\CSGNN\cline_docs\productContext.md
-
-- Extension: .md
-- Language: markdown
-- Size: 1639 bytes
-- Created: 2025-08-22 11:30:18
-- Modified: 2025-08-22 11:30:21
-
-### Code
-
-```markdown
- 1 | # 产品背景 (Product Context)
- 2 | 
- 3 | ## 为什么需要这个项目？
- 4 | 该项目旨在解决动态图表示学习中，现有方法在处理大型时间图时，由于通常使用循环神经网络 (RNNs) 而导致的计算和内存开销严重的问题。随着时间图的规模不断扩大，可伸缩性成为一个主要挑战。
- 5 | 
- 6 | ## 解决什么问题？
- 7 | SpikeNet 提出了一种可伸缩的框架，旨在高效地捕获时间图的时序和结构模式，同时显著降低计算成本。它通过使用脉冲神经网络 (SNNs) 替代 RNNs 来解决传统方法在大型动态图上的效率问题，SNNs 作为 RNNs 的低功耗替代方案，能够以高效的方式将图动态建模为神经元群的脉冲序列，并实现基于脉冲的传播。
- 8 | 
- 9 | ## 应该如何工作？
-10 | SpikeNet 框架通过 SNNs 建模时间图的演化动态。它通过实验证明，在时间节点分类任务上，相比现有基线，SpikeNet 具有更低的计算成本和更优的性能。特别地，它能够以显著更少的参数和计算开销扩展到大型时间图（2M 节点和 13M 边）。该项目还提供了扩展到静态图的示例。
-11 | 
-12 | 该项目包含以下主要部分：
-13 | - **数据处理**：支持 DBLP、Tmall、Patent 等大型时间图数据集，并提供节点特征生成脚本 (`generate_feature.py`)。
-14 | - **SpikeNet 模型实现**：核心模型逻辑可能位于 `spikenet/layers.py` 和 `spikenet/neuron.py` 等文件中。
-15 | - **邻居采样器**：通过 `setup.py` 进行构建以实现高效的邻居采样。
-16 | - **主训练脚本**：`main.py` 用于动态图，`main_static.py` 用于静态图。
-```
-
-## File: F:\SomeProjects\CSGNN\cline_docs\progress.md
-
-- Extension: .md
-- Language: markdown
-- Size: 1843 bytes
-- Created: 2025-08-22 12:19:46
-- Modified: 2025-09-15 01:01:24
-
-### Code
-
-```markdown
- 1 | # 项目进度
- 2 | 
- 3 | ## 已完成功能
- 4 | 
- 5 | - **`SpikeNet-X` 原型实现**:
- 6 |     - `spikenet_x` 目录下的所有核心模块已完成。
- 7 |     - 模型可以通过 `spikenet_x/minimal_example.py` 进行验证。
- 8 | - **`main.py` 集成与稀疏 STA**:
- 9 |     - `main.py` 支持通过 `--model spikenetx` 调用模型。
-10 |     - 实现了 O(E) 复杂度的稀疏 STA 注意力机制，解决了大型图上的内存溢出问题。
-11 | - **`SpikeNet-X` 训练流程修复**:
-12 |     - **状态**: **已完成**
-13 |     - **描述**: 成功定位并修复了稀疏 STA 实现中的 `RuntimeError` (in-place 操作错误)。模型现在可以在大型数据集上稳定运行。
-14 | - **训练框架功能增强**:
-15 |     - **状态**: **已完成**
-16 |     - **描述**: 为 `main.py` 增加了关键的工程能力，包括：
-17 |         - 基于验证集性能的模型自动保存。
-18 |         - 从检查点文件恢复训练的断点续训功能。
-19 |         - 用于快速评估已保存模型的独立测试模式。
-20 | 
-21 | ## 需要构建的内容
-22 | 
-23 | - **基线模型性能评估**:
-24 |     - **状态**: **未开始**
-25 |     - **描述**: 在 DBLP 数据集上运行一次完整的端到端训练，获得基线性能指标（如 Macro/Micro-F1），为后续优化提供参考。
-26 | 
-27 | - **超参数调优**:
-28 |     - **状态**: **未开始**
-29 |     - **描述**: 在获得基线性能后，系统性地对模型的关键超参数（如学习率, 时间窗口, 注意力头数等）进行调优，以最大化模型性能。
-30 | 
-31 | ## 进度状态
-32 | 
-33 | - **`SpikeNet-X` 功能**: **已就绪 (READY FOR EXPERIMENTS)**
-34 | - **原因**: 核心的 `RuntimeError` 已修复，训练流程稳定。同时，模型保存、断点续训等关键功能的加入，使得进行系统性的实验和调优成为可能。项目已从“功能解锁”阶段推进到“实验与优化”阶段。
-```
-
-## File: F:\SomeProjects\CSGNN\cline_docs\systemPatterns.md
-
-- Extension: .md
-- Language: markdown
-- Size: 4180 bytes
-- Created: 2025-08-22 11:32:15
-- Modified: 2025-09-14 20:15:59
-
-### Code
-
-```markdown
- 1 | # 系统模式 (System Patterns)
- 2 | 
- 3 | ## 系统如何构建？
- 4 | SpikeNet 项目是一个基于 PyTorch 实现的动态图表示学习框架，核心在于利用脉冲神经网络 (SNNs) 处理时间图数据。其主要组件和构建方式如下：
- 5 | 
- 6 | 1.  **数据层 (`spikenet/dataset.py`)**：
- 7 |     *   提供 `Dataset` 基类，以及 DBLP、Tmall、Patent 等具体数据集的实现。
- 8 |     *   负责从文件中读取节点特征（`.npy`）、边（`.txt` 或 `.json`）和标签（`node2label.txt` 或 `.json`）。
- 9 |     *   支持对节点特征进行标准化。
-10 |     *   将边列表转换为稀疏邻接矩阵 (`scipy.sparse.csr_matrix`)。
-11 |     *   实现节点和边的时间切片与划分，以模拟图的动态演化。
-12 |     *   数据集迭代器允许按时间步访问图快照。
-13 | 
-14 | 2.  **核心模型组件 (`spikenet/neuron.py`, `spikenet/layers.py`)**：
-15 |     *   **神经元模型 (`spikenet/neuron.py`)**：定义了基本的脉冲神经元（如 IF, LIF, PLIF）。这些神经元模型负责电压积分、发放脉冲和重置。
-16 |     *   **替代梯度 (`spikenet/neuron.py`)**：由于 SNN 的脉冲函数不可导，使用了多种替代梯度技术（如 SuperSpike, MultiGaussSpike, TriangleSpike, ArctanSpike, SigmoidSpike）来实现反向传播训练。
-17 |     *   **图聚合器 (`spikenet/layers.py`)**：包含了 `SAGEAggregator`，表明网络层可能采用了 GraphSAGE 风格的邻居特征聚合机制。它将中心节点特征与聚合后的邻居特征进行组合。
-18 | 
-19 | 3.  **图采样器 (`spikenet/utils.py`, `spikenet/sample_neighber.cpp`)**：
-20 |     *   `spikenet/utils.py` 中定义了 `Sampler` 和 `RandomWalkSampler` 类，用于从邻接矩阵中采样邻居。
-21 |     *   `Sampler` 类利用了外部 C++ 实现 `sample_neighber_cpu` 进行高效的邻居采样，这可能是为了性能优化。
-22 |     *   `RandomWalkSampler` 在可选依赖 `torch_cluster` 存在时提供随机游走采样功能。
-23 | 
-24 | 4.  **特征生成 (`generate_feature.py`, `spikenet/deepwalk.py`)**：
-25 |     *   `generate_feature.py` 脚本用于为不带原始特征的数据集生成节点特征，通过无监督的 DeepWalk 方法实现，其核心逻辑可能在 `spikenet/deepwalk.py` 中。
-26 | 
-27 | 5.  **训练入口 (`main.py`, `main_static.py`)**：
-28 |     *   `main.py` 是用于动态图训练的主脚本，配置数据集、模型参数和训练过程。
-29 |     *   `main_static.py` 是用于静态图训练的脚本，可能适配了不同的数据集和训练流程。
-30 | 
-31 | ## 关键技术决策
-32 | *   **SNNs 用于动态图**：核心创新是将 SNNs 应用于动态图表示学习，以解决传统 RNNs 在大规模图上的计算和内存效率问题。
-33 | *   **替代梯度**：采用替代梯度方法来训练 SNNs，使其能够通过反向传播进行优化。
-34 | *   **GraphSAGE 风格聚合**：使用聚合器从邻居节点收集信息，这是图神经网络中的常见模式。
-35 | *   **C++ 优化采样**：通过 `sample_neighber.cpp` 提供的 C++ 实现进行邻居采样，以提高性能和处理大规模图的能力。
-36 | *   **模块化设计**：将神经元模型、网络层、数据处理和采样器等功能分别封装在不同的模块中，提高了代码的可维护性和可扩展性。
-37 | *   **数据集支持**：设计了通用的 `Dataset` 接口，并为多个真实世界大型时间图数据集提供了具体实现。
-38 | 
-39 | ## 架构模式
-40 | *   **时间序列图处理**：通过迭代时间步来处理图快照，捕获图的动态演化。
-41 | *   **消息传递范式**：聚合器（如 `SAGEAggregator`）遵循图神经网络的消息传递范式，其中节点通过聚合邻居信息来更新其表示。
-42 | *   **分离的数据加载与模型逻辑**：`dataset.py` 负责数据管理，而 `neuron.py` 和 `layers.py` 负责模型核心逻辑，实现了关注点分离。
-43 | *   **参数化神经元行为**：神经元模型（如 LIF）通过可配置的参数（如 `tau`, `v_threshold`, `alpha`）和可选择的替代梯度类型，提供了灵活性。
-44 | *   **命令行参数配置**：`main.py` 和 `main_static.py` 通过命令行参数 (`argparse`) 配置训练过程，方便实验和调优。
-```
-
-## File: F:\SomeProjects\CSGNN\cline_docs\techContext.md
-
-- Extension: .md
-- Language: markdown
-- Size: 2097 bytes
-- Created: 2025-08-22 11:33:19
-- Modified: 2025-08-22 11:33:22
-
-### Code
-
-```markdown
- 1 | # 技术背景 (Tech Context)
- 2 | 
- 3 | ## 使用的技术
- 4 | *   **Python**：主要的编程语言。
- 5 | *   **PyTorch**：核心深度学习框架，用于构建和训练神经网络。
- 6 | *   **NumPy**：用于数值计算和数组操作。
- 7 | *   **SciPy**：用于科学计算，特别是稀疏矩阵操作 (`scipy.sparse`)。
- 8 | *   **Scikit-learn**：用于数据预处理（如 `LabelEncoder`）和模型评估。
- 9 | *   **tqdm**：用于显示进度条。
-10 | *   **texttable**：用于命令行参数的表格化输出。
-11 | *   **Numba**：一个 JIT 编译器，可能用于加速某些 Python 代码。
-12 | *   **C++**：用于高性能的邻居采样模块 (`sample_neighber.cpp`)，通过 `setup.py` 进行编译和集成。
-13 | *   **torch_cluster (可选)**：如果安装，用于更高级的图采样操作，如随机游走。
-14 | 
-15 | ## 开发设置
-16 | *   **环境**：项目支持在 PyTorch 环境下运行。
-17 | *   **依赖**：`requirements` 部分列出了具体的包及其版本，包括 `tqdm`, `scipy`, `texttable`, `torch`, `numpy`, `numba`, `scikit_learn` 和可选的 `torch_cluster`。
-18 | *   **邻居采样器构建**：需要通过运行 `python setup.py install` 来编译和安装 C++ 实现的邻居采样器。
-19 | *   **数据准备**：数据集需要下载并放置在 `data/` 目录下。对于没有原始节点特征的数据集，可以通过 `generate_feature.py` 脚本使用 DeepWalk 生成特征。
-20 | 
-21 | ## 技术约束
-22 | *   **大规模图处理**：设计目标是处理包含数百万节点和数千万边的大型时间图，对计算和内存效率有较高要求。
-23 | *   **SNN 训练挑战**：脉冲函数不可导，需要依赖替代梯度方法进行训练。
-24 | *   **数据格式**：需要适配不同数据集的特定文件格式（`.txt`, `.json`, `.npy`）。
-25 | *   **PyTorch 版本兼容性**：代码应兼容 PyTorch 1.6-1.12 版本。
-26 | *   **C++ 依赖**：邻居采样器依赖 C++ 编译，可能需要相应的编译环境。
-27 | *   **`torch_cluster` 依赖 (可选)**：随机游走采样功能依赖于 `torch_cluster` 库，如果未安装则无法使用该功能。
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet\dataset.py
@@ -3004,160 +2209,82 @@
 
 - Extension: .py
 - Language: python
-- Size: 4913 bytes
+- Size: 2766 bytes
 - Created: 2025-08-22 12:57:19
-- Modified: 2025-09-15 01:09:53
+- Modified: 2025-09-15 02:40:52
 
 ### Code
 
 ```python
-  1 | # -*- coding: utf-8 -*-
-  2 | """
-  3 | LIFCell: 脉冲神经元单元（支持自适应阈值与 fast-tanh 代理梯度）
-  4 | 
-  5 | 接口
-  6 | ----
-  7 | forward(M: Float[T, N, d]) -> Tuple[S: Float[T, N], V: Float[T, N], aux: Dict]
-  8 | - M 为从聚合器得到的消息（电流输入）
-  9 | - 先用线性投影 U: R^d -> R 将通道聚合为标量电流 I_tn
- 10 | - 递推更新膜电位与阈值，产生脉冲
- 11 | 
- 12 | 参考公式（提示词）
- 13 | ----------------
- 14 | V_{i,t} = λ V_{i,t-1} + U m_{i,t} - θ_{i,t-1} R_{i,t-1}
- 15 | S_{i,t} = 𝟙[V_{i,t} > θ_{i,t}]
- 16 | V_{i,t} ← V_{i,t} - S_{i,t} · θ_{i,t}          (重置)
- 17 | θ_{i,t} = τ_θ θ_{i,t-1} + γ S_{i,t-1}          (自适应阈值，可选)
- 18 | 
- 19 | 训练
- 20 | ----
- 21 | - 使用 fast-tanh 代理梯度:
- 22 |   y = H(x) + (tanh(βx) - tanh(βx).detach())
- 23 |   其中 H(x) 为硬阶跃 (x>0)
- 24 | """
- 25 | 
- 26 | from __future__ import annotations
- 27 | 
- 28 | from typing import Dict, Optional, Tuple
- 29 | 
- 30 | import torch
- 31 | import torch.nn as nn
- 32 | 
- 33 | 
- 34 | def _fast_tanh_surrogate(x: torch.Tensor, beta: float = 2.0) -> torch.Tensor:
- 35 |     """
- 36 |     硬触发 + 平滑梯度的 STE 实现:
- 37 |       forward: step(x)
- 38 |       backward: tanh(βx) 的导数 (≈ β * (1 - tanh^2(βx)))
- 39 |     """
- 40 |     hard = (x > 0).to(x.dtype)
- 41 |     soft = torch.tanh(beta * x)
- 42 |     return hard + (soft - soft.detach())
- 43 | 
- 44 | 
- 45 | class LIFCell(nn.Module):
- 46 |     def __init__(
- 47 |         self,
- 48 |         d: int,
- 49 |         lambda_mem: float = 0.95,
- 50 |         tau_theta: float = 0.99,
- 51 |         gamma: float = 0.10,
- 52 |         adaptive: bool = True,
- 53 |         surrogate: str = "fast_tanh",
- 54 |         beta: float = 2.0,
- 55 |     ) -> None:
- 56 |         super().__init__()
- 57 |         assert 0.0 <= lambda_mem <= 1.0
- 58 |         assert 0.0 <= tau_theta <= 1.0
- 59 |         assert gamma >= 0.0
- 60 | 
- 61 |         self.d = int(d)
- 62 |         self.adaptive = bool(adaptive)
- 63 |         self.surrogate = str(surrogate)
- 64 |         self.beta = float(beta)
- 65 | 
- 66 |         # U: R^d -> R（共享于所有节点），无偏置避免电流漂移
- 67 |         self.proj = nn.Linear(d, 1, bias=True)
- 68 | 
- 69 |         # 将标量参数注册为 buffer，便于脚本化与移动设备
- 70 |         self.register_buffer("lambda_mem", torch.as_tensor(lambda_mem, dtype=torch.float32))
- 71 |         self.register_buffer("tau_theta", torch.as_tensor(tau_theta, dtype=torch.float32))
- 72 |         self.register_buffer("gamma", torch.as_tensor(gamma, dtype=torch.float32))
- 73 | 
- 74 |     def _spike(self, x: torch.Tensor) -> torch.Tensor:
- 75 |         if self.surrogate == "fast_tanh":
- 76 |             return _fast_tanh_surrogate(x, beta=self.beta)
- 77 |         # 兜底：纯硬阈值（无代理梯度）
- 78 |         return (x > 0).to(x.dtype)
- 79 | 
- 80 |     @torch.no_grad()
- 81 |     def reset_parameters(self) -> None:
- 82 |         nn.init.xavier_uniform_(self.proj.weight)
- 83 | 
- 84 |     def forward(
- 85 |         self,
- 86 |         M: torch.Tensor,                # [T, N, d]
- 87 |         state0: Optional[Dict] = None,  # 可选: {"V": [N], "theta": [N], "S": [N]}
- 88 |     ) -> Tuple[torch.Tensor, torch.Tensor, Dict]:
- 89 |         assert M.dim() == 3, "M 形状应为 [T, N, d]"
- 90 |         T, N, d = M.shape
- 91 |         assert d == self.d, f"d 不匹配: 期望 {self.d}, 实得 {d}"
- 92 | 
- 93 |         device = M.device
- 94 |         dtype = M.dtype
- 95 | 
- 96 |         # 初始状态
- 97 |         if state0 is None:
- 98 |             V = torch.zeros(N, device=device, dtype=dtype)
- 99 |             theta = torch.ones(N, device=device, dtype=dtype)  # 初始阈值 1.0
-100 |             S_prev = torch.zeros(N, device=device, dtype=dtype)
-101 |         else:
-102 |             V = state0.get("V", torch.zeros(N, device=device, dtype=dtype)).to(dtype)
-103 |             theta = state0.get("theta", torch.ones(N, device=device, dtype=dtype)).to(dtype)
-104 |             S_prev = state0.get("S", torch.zeros(N, device=device, dtype=dtype)).to(dtype)
-105 | 
-106 |         S_seq = []
-107 |         V_seq = []
-108 |         theta_seq = []
-109 | 
-110 |         lam = self.lambda_mem
-111 |         tau = self.tau_theta
-112 |         gam = self.gamma
-113 | 
-114 |         for t in range(T):
-115 |             # 投影到标量电流 I_tn: [N]
-116 |             I = self.proj(M[t]).squeeze(-1)  # [N]
-117 | 
-118 |             # 记忆衰减 + 输入累积
-119 |             V = lam * V + I - (theta * S_prev)  # 包含上一步的 Refractory 抑制项
-120 | 
-121 |             # 触发条件与代理梯度
-122 |             x = V - theta
-123 |             S = self._spike(x)  # [N] in [0,1]
-124 | 
-125 |             # 重置：发放处扣除阈值
-126 |             V = V - S * theta
-127 | 
-128 |             # 自适应阈值
-129 |             if self.adaptive:
-130 |                 theta = tau * theta + gam * S_prev
-131 | 
-132 |             # 记录
-133 |             S_seq.append(S)
-134 |             V_seq.append(V)
-135 |             theta_seq.append(theta)
-136 | 
-137 |             # 更新上一时刻的发放
-138 |             S_prev = S
-139 | 
-140 |         S_out = torch.stack(S_seq, dim=0)  # [T, N]
-141 |         V_out = torch.stack(V_seq, dim=0)  # [T, N]
-142 | 
-143 |         aux = {
-144 |             "theta": torch.stack(theta_seq, dim=0),   # [T, N]
-145 |             "spike_rate": S_out.mean().detach(),      # 标量，便于监控
-146 |         }
-147 |         return S_out, V_out, aux
+ 1 | import torch
+ 2 | import torch.nn as nn
+ 3 | from typing import Tuple
+ 4 | 
+ 5 | class LIFCell(nn.Module):
+ 6 |     """
+ 7 |     一个批处理的、基于循环的 Leaky Integrate-and-Fire (LIF) 神经元单元。
+ 8 |     它接收一个形状为 [T, N] 的输入电流，并按时间步进行处理。
+ 9 |     """
+10 |     def __init__(self, lif_tau_theta: float = 1.0, lif_gamma: float = 0.95, lif_beta: float = 0.95):
+11 |         """
+12 |         初始化LIF神经元。
+13 | 
+14 |         Args:
+15 |             lif_tau_theta (float): 膜电位阈值 (V_th)。
+16 |             lif_gamma (float): 脉冲衰减因子，用于脉冲后的电位重置。
+17 |             lif_beta (float): 膜电位泄漏/衰减因子。
+18 |         """
+19 |         super().__init__()
+20 |         # 使用 register_buffer 将这些张量注册为模型的持久状态，但不是模型参数（不会被优化器更新）
+21 |         self.register_buffer("tau_theta", torch.tensor(lif_tau_theta))
+22 |         self.register_buffer("gamma", torch.tensor(lif_gamma))
+23 |         self.register_buffer("beta", torch.tensor(lif_beta))
+24 | 
+25 |     def forward(self, I_in: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+26 |         """
+27 |         LIF神经元的前向传播。
+28 | 
+29 |         Args:
+30 |             I_in (torch.Tensor): 输入电流，形状为 [T, N]，T是时间步数，N是节点数。
+31 | 
+32 |         Returns:
+33 |             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+34 |             - spikes (torch.Tensor): 输出脉冲序列，形状 [T, N]。
+35 |             - v_mem (torch.Tensor): 膜电位历史记录，形状 [T, N]。
+36 |             - spike_history (torch.Tensor): 脉冲历史记录（与spikes相同，用于可能的内部调试）。
+37 |         """
+38 |         T, N = I_in.shape
+39 |         device = I_in.device
+40 | 
+41 |         # 初始化膜电位和脉冲历史记录
+42 |         v = torch.zeros(N, device=device)
+43 |         s = torch.zeros(N, device=device)
+44 | 
+45 |         # 用于存储每个时间步结果的列表
+46 |         v_mem_list = []
+47 |         spike_list = []
+48 | 
+49 |         # 按时间步循环处理
+50 |         for t in range(T):
+51 |             # 计算新的膜电位
+52 |             # v_new = v_old * beta (泄漏) + I_in (积分) - s_old * gamma (重置)
+53 |             v = self.beta * v + I_in[t] - self.gamma * s
+54 |             
+55 |             # 检查是否超过阈值，产生脉冲
+56 |             s = (v > self.tau_theta).float()
+57 |             
+58 |             # 脉冲发放后，重置膜电位 (硬重置)
+59 |             v = v * (1.0 - s)
+60 | 
+61 |             # 存储当前时间步的结果
+62 |             v_mem_list.append(v)
+63 |             spike_list.append(s)
+64 | 
+65 |         # 将列表堆叠成张量
+66 |         v_mem_out = torch.stack(v_mem_list, dim=0)
+67 |         spikes_out = torch.stack(spike_list, dim=0)
+68 |         
+69 |         return spikes_out, v_mem_out, spikes_out
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\masked_ops.py
@@ -3428,232 +2555,89 @@
 
 - Extension: .py
 - Language: python
-- Size: 7649 bytes
+- Size: 2157 bytes
 - Created: 2025-08-22 13:07:03
-- Modified: 2025-09-15 01:01:24
+- Modified: 2025-09-15 02:34:17
 
 ### Code
 
 ```python
-  1 | # -*- coding: utf-8 -*-
-  2 | """
-  3 | SpikeNet-X: multi-layer network composed of (DelayLine -> STA -> LIF) blocks.
-  4 | 
-  5 | This module provides a thin, task-agnostic backbone `SpikeNetX` that stacks
-  6 | `SpikeNetXLayer` L times and (optionally) a lightweight readout head.
-  7 | 
-  8 | Key ideas follow `提示词.md`:
-  9 | - Time-first tensors: H: [T, N, d_in], S: [T, N]
- 10 | - Event-driven STA with causal window W and Top-k sparsification
- 11 | - Learnable DelayLine in front of STA to model propagation delay
- 12 | - LIF cell generates spikes that can gate attention in the next layer
- 13 | 
- 14 | Typical usage
- 15 | -------------
- 16 | >>> import torch
- 17 | >>> from spikenet_x import SpikeNetX
- 18 | >>> T, N, d_in, d, Hs, L = 32, 128, 64, 128, 4, 2
- 19 | >>> H0 = torch.randn(T, N, d_in)
- 20 | >>> edge_index = torch.randint(0, N, (2, 4*N))  # toy edges
- 21 | >>> time_idx = torch.arange(T)
- 22 | >>> model = SpikeNetX(d_in=d_in, d=d, layers=L, heads=Hs, topk=16, W=32, out_dim=10)
- 23 | >>> out = model(H0, edge_index=edge_index, time_idx=time_idx)
- 24 | >>> out["logits"].shape  # [N, out_dim] by default (last-time readout)
- 25 | torch.Size([128, 10])
- 26 | """
- 27 | 
- 28 | from __future__ import annotations
- 29 | 
- 30 | from typing import Dict, List, Optional, Tuple
- 31 | 
- 32 | import torch
- 33 | import torch.nn as nn
- 34 | 
- 35 | from .spikenetx_layer import SpikeNetXLayer
- 36 | 
- 37 | 
- 38 | class SpikeNetX(nn.Module):
- 39 |     """
- 40 |     A stack of SpikeNetXLayer blocks with optional classifier head.
- 41 | 
- 42 |     Args
- 43 |     ----
- 44 |     d_in: int
- 45 |         Input feature dimension.
- 46 |     d: int
- 47 |         Hidden/STA output dimension per layer.
- 48 |     layers: int
- 49 |         Number of stacked layers.
- 50 |     heads: int
- 51 |         Number of attention heads per layer.
- 52 |     topk: int
- 53 |         Top-k candidates kept per (i,t) in STA.
- 54 |     W: int
- 55 |         Causal attention time window.
- 56 |     K: int
- 57 |         DelayLine taps.
- 58 |     rho: float
- 59 |         DelayLine exponential discount.
- 60 |     use_rel_bias: bool
- 61 |         Whether to use learnable relative bias b[Δt].
- 62 |     attn_drop: float
- 63 |         Attention dropout prob.
- 64 |     temp: float
- 65 |         Softmax temperature for attention logits.
- 66 |     per_channel: bool
- 67 |         Per-channel DelayLine weights if True (recommended).
- 68 |     ffn_hidden_mult: int
- 69 |         Multiplier of FFN hidden width inside each layer.
- 70 |     ffn_drop: float
- 71 |         Dropout inside layer FFN.
- 72 |     lif_*: see LIFCell.
- 73 |     out_dim: Optional[int]
- 74 |         If set, attach a linear head to produce logits for node-level tasks.
- 75 |     readout: str
- 76 |         'last' (default): use last time-step T-1 for logits,
- 77 |         'mean': temporal mean pooling over T.
- 78 |     """
- 79 | 
- 80 |     def __init__(
- 81 |         self,
- 82 |         d_in: int,
- 83 |         d: int,
- 84 |         layers: int = 2,
- 85 |         heads: int = 4,
- 86 |         topk: int = 16,
- 87 |         W: int = 64,
- 88 |         K: int = 5,
- 89 |         rho: float = 0.85,
- 90 |         use_rel_bias: bool = True,
- 91 |         attn_drop: float = 0.1,
- 92 |         temp: float = 1.0,
- 93 |         attn_impl: str = "dense",
- 94 |         per_channel: bool = True,
- 95 |         ffn_hidden_mult: int = 4,
- 96 |         ffn_drop: float = 0.1,
- 97 |         lif_lambda_mem: float = 0.95,
- 98 |         lif_tau_theta: float = 0.95,
- 99 |         lif_gamma: float = 0.20,
-100 |         lif_adaptive: bool = True,
-101 |         lif_surrogate: str = "fast_tanh",
-102 |         lif_beta: float = 2.0,
-103 |         out_dim: Optional[int] = None,
-104 |         readout: str = "last",
-105 |     ) -> None:
-106 |         super().__init__()
-107 |         assert layers >= 1, "layers must be >= 1"
-108 |         assert readout in ("last", "mean"), "readout must be 'last' or 'mean'"
-109 | 
-110 |         self.layers = int(layers)
-111 |         self.readout = readout
-112 |         self.out_dim = out_dim
-113 |         self.attn_impl = attn_impl
-114 |         assert self.attn_impl in ("dense", "sparse"), "attn_impl must be 'dense' or 'sparse'"
-115 | 
-116 |         mods: List[SpikeNetXLayer] = []
-117 |         for l in range(layers):
-118 |             in_dim = d_in if l == 0 else d
-119 |             mods.append(
-120 |                 SpikeNetXLayer(
-121 |                     d_in=in_dim,
-122 |                     d=d,
-123 |                     heads=heads,
-124 |                     topk=topk,
-125 |                     W=W,
-126 |                     K=K,
-127 |                     rho=rho,
-128 |                     use_rel_bias=use_rel_bias,
-129 |                     attn_drop=attn_drop,
-130 |                     temp=temp,
-131 |                     attn_impl=attn_impl,
-132 |                     per_channel=per_channel,
-133 |                     ffn_hidden_mult=ffn_hidden_mult,
-134 |                     ffn_drop=ffn_drop,
-135 |                     lif_lambda_mem=lif_lambda_mem,
-136 |                     lif_tau_theta=lif_tau_theta,
-137 |                     lif_gamma=lif_gamma,
-138 |                     lif_adaptive=lif_adaptive,
-139 |                     lif_surrogate=lif_surrogate,
-140 |                     lif_beta=lif_beta,
-141 |                 )
-142 |             )
-143 |         self.blocks = nn.ModuleList(mods)
-144 | 
-145 |         self.head = nn.Linear(d, out_dim, bias=True) if out_dim is not None else None
-146 |         if self.head is not None:
-147 |             nn.init.xavier_uniform_(self.head.weight)
-148 |             nn.init.zeros_(self.head.bias)
-149 | 
-150 |     def forward(
-151 |         self,
-152 |         H: torch.Tensor,                        # [T, N, d_in]
-153 |         edge_index: Optional[torch.Tensor],     # [2, E] or None (if adj_mask provided)
-154 |         time_idx: torch.Tensor,                 # [T]
-155 |         adj_mask: Optional[torch.Tensor] = None,  # [N, N] Bool or None
-156 |         S0: Optional[torch.Tensor] = None,        # initial spikes for layer-0 gating [T, N] (optional)
-157 |     ) -> Dict[str, torch.Tensor]:
-158 |         assert H.dim() == 3, "H should be [T, N, d_in]"
-159 |         T, N, _ = H.shape
-160 |         assert time_idx.dim() == 1 and time_idx.numel() == T, "time_idx must be [T]"
-161 | 
-162 |         S_prev = S0  # first layer gating; None -> all-ones gating inside block
-163 |         Y = None
-164 |         S_list: List[torch.Tensor] = []
-165 |         V_list: List[torch.Tensor] = []
-166 | 
-167 |         X = H
-168 |         aux_last: Dict[str, torch.Tensor] = {}
-169 |         for blk in self.blocks:
-170 |             S, V, Y, aux = blk(
-171 |                 H=X,
-172 |                 S_prev=S_prev,
-173 |                 edge_index=edge_index,
-174 |                 time_idx=time_idx,
-175 |                 adj_mask=adj_mask,
-176 |             )
-177 |             S_list.append(S)   # each: [T, N]
-178 |             V_list.append(V)
-179 |             S_prev = S         # spikes feed-forward as gate for next layer
-180 |             X = Y              # features for next layer
-181 |             aux_last = aux
-182 | 
-183 |         # Readout
-184 |         if self.readout == "last":
-185 |             z = Y[-1]  # [N, d]
-186 |         else:  # "mean"
-187 |             z = Y.mean(dim=0)  # [N, d]
-188 | 
-189 |         logits = self.head(z) if self.head is not None else None
-190 | 
-191 |         out: Dict[str, torch.Tensor] = {
-192 |             "repr": z,                       # [N, d]
-193 |             "Y_last": Y,                     # [T, N, d]
-194 |             "S_list": torch.stack(S_list),   # [L, T, N]
-195 |             "V_list": torch.stack(V_list),   # [L, T, N]
-196 |         }
-197 |         if logits is not None:
-198 |             out["logits"] = logits           # [N, out_dim]
-199 | 
-200 |         # for convenience: expose a few internals when available
-201 |         if "M" in aux_last:
-202 |             out["M_last"] = aux_last["M"]    # [T, N, d]
-203 | 
-204 |         return out
-205 | 
-206 | 
-207 | def shape_check_demo() -> Tuple[torch.Size, Optional[torch.Size]]:
-208 |     """
-209 |     Minimal shape check (no training). Returns (Y_last_shape, logits_shape).
-210 |     """
-211 |     T, N, d_in, d, Hs, L = 16, 64, 32, 64, 4, 2
-212 |     E = N * 4
-213 |     H0 = torch.randn(T, N, d_in)
-214 |     edge_index = torch.randint(0, N, (2, E))
-215 |     time_idx = torch.arange(T)
-216 | 
-217 |     model = SpikeNetX(d_in=d_in, d=d, layers=L, heads=Hs, topk=8, W=8, out_dim=5)
-218 |     out = model(H0, edge_index=edge_index, time_idx=time_idx)
-219 |     return out["Y_last"].shape, out.get("logits", None).shape if "logits" in out else None
+ 1 | 
+ 2 | # spikenet_x/model.py
+ 3 | from __future__ import annotations
+ 4 | from typing import Dict, List, Optional
+ 5 | import torch
+ 6 | import torch.nn as nn
+ 7 | from .spiketdanet_layer import SpikeTDANetLayer
+ 8 | 
+ 9 | class SpikeTDANet(nn.Module):
+10 |     """
+11 |     Spike-TDANet: A Spiking Temporal Delay Attention Network.
+12 |     This model stacks SpikeTDANetLayer blocks.
+13 |     """
+14 |     def __init__(
+15 |         self,
+16 |         d_in: int,
+17 |         d: int,
+18 |         layers: int = 2,
+19 |         heads: int = 4,
+20 |         W: int = 32,
+21 |         out_dim: Optional[int] = None,
+22 |         readout: str = "mean",
+23 |         **kwargs
+24 |     ) -> None:
+25 |         super().__init__()
+26 |         assert layers >= 1
+27 |         assert readout in ("last", "mean")
+28 | 
+29 |         self.readout = readout
+30 |         self.d_in = d_in
+31 |         self.d = d
+32 |         
+33 |         # 输入投影层，确保维度统一为 d
+34 |         self.input_proj = nn.Linear(d_in, d)
+35 |         
+36 |         self.layers = nn.ModuleList()
+37 |         for _ in range(layers):
+38 |             self.layers.append(SpikeTDANetLayer(channels=d, heads=heads, W=W, **kwargs))
+39 | 
+40 |         self.head = nn.Linear(d, out_dim) if out_dim is not None else None
+41 | 
+42 |     def forward(
+43 |         self,
+44 |         H: torch.Tensor,
+45 |         edge_index: torch.Tensor,
+46 |         time_idx: torch.Tensor,
+47 |         S0: Optional[torch.Tensor] = None,
+48 |     ) -> Dict[str, torch.Tensor]:
+49 |         
+50 |         # 初始特征投影
+51 |         features = self.input_proj(H)
+52 |         spikes = S0
+53 |         
+54 |         spike_list = []
+55 | 
+56 |         for layer in self.layers:
+57 |             features, spikes = layer(features, spikes, edge_index, time_idx)
+58 |             spike_list.append(spikes)
+59 | 
+60 |         # 读出
+61 |         if self.readout == "last":
+62 |             z = features[-1]  # [N, d]
+63 |         else:  # "mean"
+64 |             z = features.mean(dim=0)  # [N, d]
+65 | 
+66 |         logits = self.head(z) if self.head is not None else None
+67 | 
+68 |         out: Dict[str, torch.Tensor] = {
+69 |             "repr": z,
+70 |             "Y_last": features,
+71 |             "S_list": torch.stack(spike_list) if spike_list else torch.empty(0),
+72 |         }
+73 |         if logits is not None:
+74 |             out["logits"] = logits
+75 | 
+76 |         return out
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\rel_time.py
@@ -4035,6 +3019,102 @@
 168 |         Y = self.norm(M + self.ffn(M))  # [T, N, d]
 169 | 
 170 |         return S, V, Y, aux
+```
+
+## File: F:\SomeProjects\CSGNN\spikenet_x\spiketdanet_layer.py
+
+- Extension: .py
+- Language: python
+- Size: 3239 bytes
+- Created: 2025-09-15 02:24:13
+- Modified: 2025-09-15 02:39:00
+
+### Code
+
+```python
+ 1 | import torch
+ 2 | import torch.nn as nn
+ 3 | import torch.nn.functional as F
+ 4 | from typing import Tuple, Optional
+ 5 | 
+ 6 | from .new_modules import SpatialGNNWrapper, DelayLine, STAGNNAggregator
+ 7 | from .lif_cell import LIFCell
+ 8 | 
+ 9 | class MLP(nn.Module):
+10 |     def __init__(self, d: int, hidden_mult: int = 4, dropout: float = 0.1):
+11 |         super().__init__()
+12 |         self.fc1 = nn.Linear(d, d * hidden_mult)
+13 |         self.fc2 = nn.Linear(d * hidden_mult, d)
+14 |         self.drop = nn.Dropout(dropout)
+15 |         self.act = nn.GELU()
+16 | 
+17 |     def forward(self, x: torch.Tensor) -> torch.Tensor:
+18 |         return self.drop(self.fc2(self.drop(self.act(self.fc1(x)))))
+19 | 
+20 | class SpikeTDANetLayer(nn.Module):
+21 |     def __init__(self, channels: int, heads: int, W: int, delay_kernel: int = 5, **kwargs):
+22 |         super().__init__()
+23 |         self.channels = channels
+24 |         
+25 |         # 定义LIFCell专属的参数键
+26 |         lif_keys = ['lif_tau_theta', 'lif_gamma', 'lif_beta']
+27 |         lif_kwargs = {}
+28 |         # 从kwargs中弹出这些键，放入lif_kwargs字典
+29 |         for key in lif_keys:
+30 |             if key in kwargs:
+31 |                 lif_kwargs[key] = kwargs.pop(key)
+32 |         # ---------------------------
+33 | 
+34 |         # 1. 空间GNN预处理
+35 |         self.spatial_gnn = SpatialGNNWrapper(channels, channels)
+36 |         self.norm1 = nn.LayerNorm(channels)
+37 | 
+38 |         # 2. 时间延迟建模
+39 |         self.delay_line = DelayLine(channels, kernel_size=delay_kernel)
+40 |         self.norm2 = nn.LayerNorm(channels)
+41 | 
+42 |         # 3. 时空信息聚合
+43 |         # 现在kwargs中已经没有LIF参数了，可以安全传递
+44 |         self.aggregator = STAGNNAggregator(d_in=channels, d=channels, heads=heads, W=W, **kwargs)
+45 |         
+46 |         # 4. 脉冲发放
+47 |         self.msg_proj = nn.Linear(channels, 1) # 投影聚合消息到标量电流
+48 |         # 使用分离出来的lif_kwargs进行初始化
+49 |         self.lif_cell = LIFCell(**lif_kwargs)
+50 |         
+51 |         # 5. FFN 和最终输出处理
+52 |         self.ffn = MLP(channels)
+53 |         self.final_norm = nn.LayerNorm(channels)
+54 | 
+55 |     def forward(self, x: torch.Tensor, spikes: Optional[torch.Tensor], edge_index: torch.Tensor, time_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+56 |         T, N, C = x.shape
+57 |         initial_input = x
+58 |         
+59 |         if spikes is None:
+60 |             spikes = torch.ones((T, N), device=x.device, dtype=x.dtype)
+61 | 
+62 |         # 1. 空间GNN预处理
+63 |         x_spatial = self.spatial_gnn(x, edge_index)
+64 |         x = self.norm1(x + x_spatial)
+65 | 
+66 |         # 2. 时间延迟建模
+67 |         x_delayed = self.delay_line(x)
+68 |         x = self.norm2(x + x_delayed)
+69 | 
+70 |         # 3. 时空聚合
+71 |         aggregated_message = self.aggregator(x, spikes, edge_index, time_idx)
+72 | 
+73 |         # 4. 脉冲发放
+74 |         # [T, N, C] -> [T, N, 1] -> [T, N]
+75 |         input_current = self.msg_proj(aggregated_message).squeeze(-1)
+76 |         new_spikes, new_v, _ = self.lif_cell(input_current)
+77 | 
+78 |         # 5. 最终输出 (FFN + 宏观残差)
+79 |         # FFN作用在聚合后的消息上，这是最富含信息的张量
+80 |         ffn_out = self.ffn(aggregated_message)
+81 |         layer_output_features = self.final_norm(initial_input + ffn_out)
+82 | 
+83 |         return layer_output_features, new_spikes
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\sta.py
@@ -4602,51 +3682,349 @@
 
 - Extension: .py
 - Language: python
-- Size: 973 bytes
+- Size: 648 bytes
 - Created: 2025-08-22 13:06:01
-- Modified: 2025-08-22 23:27:05
+- Modified: 2025-09-15 02:26:11
 
 ### Code
 
 ```python
- 1 | # -*- coding: utf-8 -*-
- 2 | """
- 3 | SpikeNet-X package
- 4 | 
- 5 | Exports the core building blocks specified in `提示词.md`:
- 6 | - LearnableDelayLine
- 7 | - SpikingTemporalAttention (dense fallback implementation)
- 8 | - LIFCell
- 9 | - SpikeNetXLayer
-10 | - Masked ops helpers and RelativeTimeEncoding
-11 | """
-12 | 
-13 | from .masked_ops import (
-14 |     masked_softmax,
-15 |     masked_topk_softmax,
-16 |     topk_mask_logits,
-17 |     fill_masked_,
-18 |     NEG_INF,
-19 | )
-20 | from .rel_time import RelativeTimeEncoding
-21 | from .delayline import LearnableDelayLine
-22 | from .sta import SpikingTemporalAttention
-23 | from .sta_sparse import SparseSpikingTemporalAttention
-24 | from .lif_cell import LIFCell
-25 | from .spikenetx_layer import SpikeNetXLayer
-26 | 
-27 | __all__ = [
-28 |     "masked_softmax",
-29 |     "masked_topk_softmax",
-30 |     "topk_mask_logits",
-31 |     "fill_masked_",
-32 |     "NEG_INF",
-33 |     "RelativeTimeEncoding",
-34 |     "LearnableDelayLine",
-35 |     "SpikingTemporalAttention",
-36 |     "SparseSpikingTemporalAttention",
-37 |     "LIFCell",
-38 |     "SpikeNetXLayer",
-39 | ]
+ 1 | # spikenet_x/__init__.py
+ 2 | from .masked_ops import (
+ 3 |     masked_softmax,
+ 4 |     masked_topk_softmax,
+ 5 |     topk_mask_logits,
+ 6 |     fill_masked_,
+ 7 |     NEG_INF,
+ 8 | )
+ 9 | from .rel_time import RelativeTimeEncoding
+10 | from .lif_cell import LIFCell
+11 | from .new_modules import *
+12 | from .spiketdanet_layer import SpikeTDANetLayer
+13 | from .model import SpikeTDANet
+14 | 
+15 | __all__ = [
+16 |     # masked_ops
+17 |     "masked_softmax", "masked_topk_softmax", "topk_mask_logits", "fill_masked_", "NEG_INF",
+18 |     # Core components
+19 |     "RelativeTimeEncoding", "LIFCell", "SpikeTDANetLayer", "SpikeTDANet",
+20 |     # New modules
+21 |     "SpatialGNNWrapper", "DelayLine", "STAGNNAggregator",
+22 | ]
+```
+
+## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\delay_line.py
+
+- Extension: .py
+- Language: python
+- Size: 1646 bytes
+- Created: 2025-09-15 02:23:21
+- Modified: 2025-09-15 02:23:26
+
+### Code
+
+```python
+ 1 | # spikenet_x/new_modules/delay_line.py
+ 2 | import torch
+ 3 | import torch.nn as nn
+ 4 | import torch.nn.functional as F
+ 5 | 
+ 6 | class DelayLine(nn.Module):
+ 7 |     """
+ 8 |     使用因果深度可分离1D卷积，低成本地建模多种时间延迟。
+ 9 |     输入格式: [T, N, d]
+10 |     """
+11 |     def __init__(self, channels: int, kernel_size: int = 5):
+12 |         super().__init__()
+13 |         self.channels = channels
+14 |         self.kernel_size = kernel_size
+15 |         
+16 |         # 因果填充，只在左侧（过去）填充
+17 |         self.padding = kernel_size - 1
+18 |         
+19 |         self.depthwise_conv = nn.Conv1d(
+20 |             in_channels=channels, 
+21 |             out_channels=channels, 
+22 |             kernel_size=kernel_size, 
+23 |             padding=self.padding, 
+24 |             groups=channels
+25 |         )
+26 |         self.pointwise_conv = nn.Conv1d(
+27 |             in_channels=channels, 
+28 |             out_channels=channels, 
+29 |             kernel_size=1
+30 |         )
+31 |         self.activation = nn.GELU()
+32 | 
+33 |     def forward(self, x: torch.Tensor) -> torch.Tensor:
+34 |         """
+35 |         Args:
+36 |             x (torch.Tensor): 输入特征, 形状 [T, N, d]
+37 | 
+38 |         Returns:
+39 |             torch.Tensor: 经过延迟建模后的特征, 形状 [T, N, d]
+40 |         """
+41 |         # [T, N, d] -> [N, d, T]
+42 |         x_permuted = x.permute(1, 2, 0)
+43 |         
+44 |         out = self.depthwise_conv(x_permuted)
+45 |         out = self.pointwise_conv(out)
+46 |         
+47 |         # 切片以保持输出长度为T，实现因果性
+48 |         out = out[:, :, :x_permuted.size(2)]
+49 |         
+50 |         out = self.activation(out)
+51 |         
+52 |         # [N, d, T] -> [T, N, d]
+53 |         return out.permute(2, 0, 1)
+```
+
+## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\spatial_gnn_wrapper.py
+
+- Extension: .py
+- Language: python
+- Size: 1504 bytes
+- Created: 2025-09-15 02:23:07
+- Modified: 2025-09-15 02:23:11
+
+### Code
+
+```python
+ 1 | # spikenet_x/new_modules/spatial_gnn_wrapper.py
+ 2 | import torch
+ 3 | import torch.nn as nn
+ 4 | from torch_geometric.nn import SAGEConv
+ 5 | 
+ 6 | class SpatialGNNWrapper(nn.Module):
+ 7 |     """
+ 8 |     在时序图的每个时间步上高效地应用SAGEConv。
+ 9 |     输入格式: [T, N, d]
+10 |     """
+11 |     def __init__(self, in_channels: int, out_channels: int, aggr: str = 'mean'):
+12 |         super().__init__()
+13 |         self.conv = SAGEConv(in_channels, out_channels, aggr=aggr)
+14 |         self.activation = nn.GELU()
+15 | 
+16 |     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+17 |         """
+18 |         Args:
+19 |             x (torch.Tensor): 节点特征, 形状 [T, N, d_in]
+20 |             edge_index (torch.Tensor): 图的边索引, 形状 [2, E]
+21 | 
+22 |         Returns:
+23 |             torch.Tensor: 空间聚合后的节点特征, 形状 [T, N, d_out]
+24 |         """
+25 |         T, N, d = x.shape
+26 |         # 将 x 重塑为 [T*N, d] 以便进行批处理GNN卷积
+27 |         x_reshaped = x.reshape(T * N, d)
+28 | 
+29 |         # 扩展 edge_index 以匹配 T 个图快照
+30 |         # PyG的SAGEConv期望节点索引是全局的，所以我们需要为每个时间步的节点创建偏移
+31 |         edge_indices = [edge_index + t * N for t in range(T)]
+32 |         edge_index_expanded = torch.cat(edge_indices, dim=1)
+33 | 
+34 |         out_reshaped = self.conv(x_reshaped, edge_index_expanded)
+35 |         out_reshaped = self.activation(out_reshaped)
+36 | 
+37 |         # 将输出恢复为 [T, N, d_out]
+38 |         return out_reshaped.reshape(T, N, -1)
+```
+
+## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\sta_gnn_agg.py
+
+- Extension: .py
+- Language: python
+- Size: 7153 bytes
+- Created: 2025-09-15 02:23:37
+- Modified: 2025-09-15 02:23:43
+
+### Code
+
+```python
+  1 | # spikenet_x/new_modules/sta_gnn_agg.py
+  2 | # 内容基本迁移自 sta_sparse.py，并重命名类
+  3 | 
+  4 | from __future__ import annotations
+  5 | from typing import Optional, Tuple
+  6 | import torch
+  7 | import torch.nn as nn
+  8 | from ..rel_time import RelativeTimeEncoding
+  9 | 
+ 10 | # Helper functions from sta_sparse.py (for segment_amax)
+ 11 | def _has_scatter_reduce_tensor() -> bool:
+ 12 |     return hasattr(torch.Tensor, "scatter_reduce_")
+ 13 | 
+ 14 | def _try_import_torch_scatter():
+ 15 |     try:
+ 16 |         import torch_scatter
+ 17 |         return torch_scatter
+ 18 |     except Exception:
+ 19 |         return None
+ 20 | 
+ 21 | _TORCH_SCATTER = _try_import_torch_scatter()
+ 22 | _HAS_TSR = _has_scatter_reduce_tensor()
+ 23 | 
+ 24 | def _segment_amax_1d(x: torch.Tensor, index: torch.Tensor, K: int) -> torch.Tensor:
+ 25 |     device, dtype = x.device, x.dtype
+ 26 |     neg_inf = torch.tensor(-1e30, dtype=dtype, device=device)
+ 27 |     if _HAS_TSR:
+ 28 |         init_val = torch.full((K,), neg_inf.item(), device=device, dtype=dtype)
+ 29 |         out = init_val.scatter_reduce(0, index, x, reduce="amax", include_self=False)
+ 30 |         return out
+ 31 |     if _TORCH_SCATTER is not None:
+ 32 |         out, _ = _TORCH_SCATTER.scatter_max(x, index, dim=0, dim_size=K)
+ 33 |         cnt = torch.zeros(K, device=device, dtype=torch.long)
+ 34 |         cnt.index_add_(0, index, torch.ones_like(index, dtype=torch.long))
+ 35 |         out = torch.where(cnt > 0, out, neg_inf)
+ 36 |         return out
+ 37 |     raise ImportError("STAGNNAggregator requires either PyTorch >= 1.12 or torch_scatter.")
+ 38 | 
+ 39 | 
+ 40 | class STAGNNAggregator(nn.Module):
+ 41 |     def __init__(
+ 42 |         self,
+ 43 |         d_in: int,
+ 44 |         d: int,
+ 45 |         heads: int = 4,
+ 46 |         W: int = 32,
+ 47 |         use_rel_bias: bool = True,
+ 48 |         attn_drop: float = 0.1,
+ 49 |         temp: float = 1.0,
+ 50 |         pe_taus: Tuple[float, float] = (4.0, 16.0),
+ 51 |         pe_n_freq: int = 3,
+ 52 |     ) -> None:
+ 53 |         super().__init__()
+ 54 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
+ 55 |         assert W >= 0, "W 必须 >= 0"
+ 56 | 
+ 57 |         self.d_in = int(d_in)
+ 58 |         self.d = int(d)
+ 59 |         self.heads = int(heads)
+ 60 |         self.d_head = self.d // self.heads
+ 61 |         self.W = int(W)
+ 62 |         self.use_rel_bias = bool(use_rel_bias)
+ 63 |         self.temp = float(temp)
+ 64 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
+ 65 |         d_pe = self.rel_enc.d_pe
+ 66 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
+ 67 |         self.W_k = nn.Linear(d_in + d_pe, self.d, bias=False)
+ 68 |         self.W_v = nn.Linear(d_in, self.d, bias=False)
+ 69 |         self.p_drop = float(attn_drop)
+ 70 |         self.scale = self.d_head ** -0.5
+ 71 |         self.reset_parameters()
+ 72 | 
+ 73 |     def reset_parameters(self) -> None:
+ 74 |         nn.init.xavier_uniform_(self.W_q.weight)
+ 75 |         nn.init.xavier_uniform_(self.W_k.weight)
+ 76 |         nn.init.xavier_uniform_(self.W_v.weight)
+ 77 | 
+ 78 |     @staticmethod
+ 79 |     def _check_edges(edge_index: torch.Tensor, N: int) -> None:
+ 80 |         if edge_index.numel() > 0:
+ 81 |             assert int(edge_index.min()) >= 0 and int(edge_index.max()) < N, "edge_index 越界"
+ 82 | 
+ 83 |     def _edge_arrays(self, edge_index: torch.Tensor, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+ 84 |         src = edge_index[0].to(device=device, dtype=torch.long)
+ 85 |         dst = edge_index[1].to(device=device, dtype=torch.long)
+ 86 |         return src, dst
+ 87 | 
+ 88 |     @torch.no_grad()
+ 89 |     def _drop_mask(self, shape: torch.Size, device: torch.device) -> Optional[torch.Tensor]:
+ 90 |         if not self.training or self.p_drop <= 0.0:
+ 91 |             return None
+ 92 |         return (torch.rand(shape, device=device) > self.p_drop)
+ 93 | 
+ 94 |     def forward(
+ 95 |         self,
+ 96 |         H_tilde: torch.Tensor,
+ 97 |         S: torch.Tensor,
+ 98 |         edge_index: torch.Tensor,
+ 99 |         time_idx: torch.Tensor,
+100 |     ) -> torch.Tensor:
+101 |         T, N, Din = H_tilde.shape
+102 |         device, dtype = H_tilde.device, H_tilde.dtype
+103 |         self._check_edges(edge_index, N)
+104 |         src, dst = self._edge_arrays(edge_index, device)
+105 |         pe_table, rel_bias = self.rel_enc(time_idx.to(device), W=self.W)
+106 |         if not self.use_rel_bias:
+107 |             rel_bias = torch.zeros_like(rel_bias)
+108 | 
+109 |         Q_all = self.W_q(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3).contiguous()
+110 |         V_all = self.W_v(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3).contiguous()
+111 |         M_out = torch.zeros((T, N, self.d), device=device, dtype=dtype)
+112 |         eps_gate = 1.0e-6
+113 | 
+114 |         for t in range(T):
+115 |             W_eff = min(self.W, t)
+116 |             Q_t = Q_all[t]
+117 |             
+118 |             max_dst_list = []
+119 |             for dt in range(W_eff + 1):
+120 |                 t_prime = t - dt
+121 |                 pe = pe_table[dt].to(dtype=dtype, device=device)
+122 |                 K_in = torch.cat([H_tilde[t_prime], pe.view(1, -1).expand(N, -1)], dim=-1)
+123 |                 K_tp = self.W_k(K_in).view(N, self.heads, self.d_head).permute(1, 0, 2).contiguous()
+124 |                 gate_log = torch.log(torch.clamp(S[t_prime], 0.0, 1.0) + eps_gate).to(dtype=dtype)
+125 |                 Q_d, K_s = Q_t[:, dst, :], K_tp[:, src, :]
+126 |                 scores = (Q_d * K_s).sum(dim=-1) * self.scale + float(rel_bias[dt]) + gate_log[src]
+127 |                 if self.temp != 1.0: scores = scores / float(self.temp)
+128 |                 m_h = torch.stack([_segment_amax_1d(scores[h], dst, N) for h in range(self.heads)])
+129 |                 max_dst_list.append(m_h)
+130 |             
+131 |             max_dst = torch.stack(max_dst_list, dim=0).max(dim=0)[0] if max_dst_list else torch.full((self.heads, N), -1e30, device=device, dtype=dtype)
+132 | 
+133 |             denom = torch.zeros((self.heads, N), device=device, dtype=dtype)
+134 |             numer = torch.zeros((self.heads, N, self.d_head), device=device, dtype=dtype)
+135 | 
+136 |             for dt in range(W_eff + 1):
+137 |                 t_prime = t - dt
+138 |                 pe = pe_table[dt].to(dtype=dtype, device=device)
+139 |                 K_in = torch.cat([H_tilde[t_prime], pe.view(1, -1).expand(N, -1)], dim=-1)
+140 |                 K_tp = self.W_k(K_in).view(N, self.heads, self.d_head).permute(1, 0, 2).contiguous()
+141 |                 V_tp = V_all[t_prime]
+142 |                 gate_log = torch.log(torch.clamp(S[t_prime], 0.0, 1.0) + eps_gate).to(dtype=dtype)
+143 |                 Q_d, K_s, V_s = Q_t[:, dst, :], K_tp[:, src, :], V_tp[:, src, :]
+144 |                 scores = (Q_d * K_s).sum(dim=-1) * self.scale + float(rel_bias[dt]) + gate_log[src]
+145 |                 if self.temp != 1.0: scores = scores / float(self.temp)
+146 |                 
+147 |                 max_g = max_dst[:, dst]
+148 |                 ex = torch.exp(scores - max_g)
+149 |                 mask = self._drop_mask(ex.shape, device=device)
+150 |                 if mask is not None: ex = ex * mask.to(dtype=ex.dtype)
+151 | 
+152 |                 for h in range(self.heads):
+153 |                     denom[h].index_add_(0, dst, ex[h])
+154 |                     contrib = ex[h].unsqueeze(-1) * V_s[h]
+155 |                     for c in range(self.d_head):
+156 |                         numer[h, :, c].index_add_(0, dst, contrib[:, c])
+157 | 
+158 |             denom = torch.clamp(denom, min=1e-12)
+159 |             msg_h = numer / denom.unsqueeze(-1)
+160 |             M_out[t] = msg_h.permute(1, 0, 2).contiguous().view(N, self.d)
+161 |             
+162 |         return M_out
+```
+
+## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\__init__.py
+
+- Extension: .py
+- Language: python
+- Size: 255 bytes
+- Created: 2025-09-15 02:22:47
+- Modified: 2025-09-15 02:22:53
+
+### Code
+
+```python
+ 1 | # spikenet_x/new_modules/__init__.py
+ 2 | from .spatial_gnn_wrapper import SpatialGNNWrapper
+ 3 | from .delay_line import DelayLine
+ 4 | from .sta_gnn_agg import STAGNNAggregator
+ 5 | 
+ 6 | __all__ = [
+ 7 |     "SpatialGNNWrapper",
+ 8 |     "DelayLine",
+ 9 |     "STAGNNAggregator",
+10 | ]
 ```
 
