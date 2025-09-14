@@ -279,43 +279,7 @@ val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else 
 test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=200000, shuffle=False)
 
 if args.model == 'spikenetx':
-    # --- SpikeNet-X Training and Evaluation (with batching) ---
-
-    # 1. Data Preparation (Full graph data)
-    print("Preparing data for SpikeNet-X...")
-    T = len(data)
-    N = data.num_nodes
-    d_in = data.num_features
     
-    edge_list = [snapshot.edge_index for snapshot in data]
-    edge_index_full = torch.unique(torch.cat(edge_list, dim=1), dim=1).to(device)
-    H0_full = torch.stack([snapshot.x for snapshot in data], dim=0).to(device)
-    time_idx_full = torch.arange(T, device=device)
-
-    # 2. Model, Optimizer, Loss
-    model = SpikeNetX(
-        d_in=d_in,
-        d=args.hids[0],
-        layers=len(args.sizes),
-        heads=args.heads,
-        out_dim=data.num_classes,
-        topk=args.topk,
-        W=args.W,
-        attn_impl=args.attn_impl
-    ).to(device)
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    loss_fn = nn.CrossEntropyLoss()
-
-    # --- Test-only mode ---
-    if args.test_model_path:
-        print(f"Loading model from {args.test_model_path} for testing...")
-        checkpoint = torch.load(args.test_model_path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        test_macro, test_micro = test_spikenetx(test_loader)
-        print(f"Test Results: Macro-F1={test_macro:.4f}, Micro-F1={test_micro:.4f}")
-        exit(0)
-
     def train_spikenetx():
         model.train()
         total_loss = 0
@@ -365,6 +329,46 @@ if args.model == 'spikenetx':
         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
         return macro, micro
+    
+    # --- SpikeNet-X Training and Evaluation (with batching) ---
+
+    # 1. Data Preparation (Full graph data)
+    print("Preparing data for SpikeNet-X...")
+    T = len(data)
+    N = data.num_nodes
+    d_in = data.num_features
+    
+    edge_list = [snapshot.edge_index for snapshot in data]
+    edge_index_full = torch.unique(torch.cat(edge_list, dim=1), dim=1).to(device)
+    H0_full = torch.stack([snapshot.x for snapshot in data], dim=0).to(device)
+    time_idx_full = torch.arange(T, device=device)
+
+    # 2. Model, Optimizer, Loss
+    model = SpikeNetX(
+        d_in=d_in,
+        d=args.hids[0],
+        layers=len(args.sizes),
+        heads=args.heads,
+        out_dim=data.num_classes,
+        topk=args.topk,
+        W=args.W,
+        attn_impl=args.attn_impl
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    loss_fn = nn.CrossEntropyLoss()
+    
+    
+    # --- Test-only mode ---
+    if args.test_model_path:
+        print(f"Loading model from {args.test_model_path} for testing...")
+        checkpoint = torch.load(args.test_model_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        test_macro, test_micro = test_spikenetx(test_loader)
+        print(f"Test Results: Macro-F1={test_macro:.4f}, Micro-F1={test_micro:.4f}")
+        exit(0)
+
+
 
     # 3. Training Loop
     start_epoch = 1
