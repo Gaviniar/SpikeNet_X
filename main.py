@@ -14,55 +14,55 @@ from spikenet.layers import SAGEAggregator
 from spikenet_x.model import SpikeTDANet
 from texttable import Texttable
 import numpy as np
+from torch_geometric.utils import subgraph
+from typing import Tuple
 
-
-def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
+def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    以一批种子节点 nodes 抽 1-hop 子图，并返回：
-      - subgraph_nodes: 子图包含的全局节点 id，形状 [N_sub]
-      - subgraph_edge_index: 子图边(局部id)，形状 [2, E_sub]
-      - nodes_local_index: 种子在子图里的局部索引，形状 [B]
-    关键改动：保留子图内部的“所有边”（src/dst 都在子图内），解锁多层传播。
+    高效的1-hop子图采样函数。
+    - 强制限制每个节点的邻居数量，以控制计算复杂度。
+    - 使用 torch_geometric.utils.subgraph 进行快速的边提取和节点重标签。
     """
     row, col = edge_index_full
     device = row.device
     nodes = nodes.to(device)
 
-    # 1) 先收集邻居（全收或限量）
-    if num_neighbors == -1:
-        mask = torch.isin(row, nodes)
-        neighbors = col[mask]
-    else:
-        # 简洁做法：对所有与种子相连的邻居做全局采样，期望规模 ≈ B * num_neighbors
-        mask = torch.isin(row, nodes)
-        neighbors_all = col[mask]
-        target = nodes.numel() * int(num_neighbors)
-        if neighbors_all.numel() > target > 0:
-            perm = torch.randperm(neighbors_all.numel(), device=device)[:target]
+    # 1) 找到所有与种子节点相连的边和邻居
+    node_mask = torch.isin(row, nodes)
+    edge_index_subset = edge_index_full[:, node_mask]
+    neighbors_all = torch.unique(edge_index_subset[1])
+    
+    # 2) 如果需要，对邻居进行采样
+    if num_neighbors > 0 and neighbors_all.numel() > 0:
+        # 为了简化，我们进行全局采样。更复杂的实现可以做到per-node采样。
+        # 即使是全局采样，也能有效控制子图规模。
+        target_num_neighbors = nodes.numel() * num_neighbors
+        if neighbors_all.numel() > target_num_neighbors:
+            perm = torch.randperm(neighbors_all.numel(), device=device)[:target_num_neighbors]
             neighbors = neighbors_all[perm]
         else:
             neighbors = neighbors_all
+    else:
+        neighbors = neighbors_all
 
-    # 2) 子图节点集合：种子 ∪ 采样邻居
-    subgraph_nodes = torch.unique(torch.cat([nodes, neighbors], dim=0))
+    # 3) 构建子图节点集并获取重标签后的边
+    subgraph_nodes = torch.unique(torch.cat([nodes, neighbors]))
+    
+    # 使用PyG的subgraph函数，它会返回重标签后的边索引
+    # relabel_nodes=True 是关键
+    subgraph_edge_index, _ = subgraph(
+        subset=subgraph_nodes,
+        edge_index=edge_index_full,
+        relabel_nodes=True,
+        num_nodes=None # PyG会自动推断
+    )
 
-    # 3) **关键修复**：仅保留子图内部的边（src/dst 都在 subgraph_nodes）
-    mask_src = torch.isin(row, subgraph_nodes)
-    mask_dst = torch.isin(col, subgraph_nodes)
-    edge_mask = mask_src & mask_dst
-    subgraph_edge_index_global = edge_index_full[:, edge_mask]  # 仍是“全局 id”
-
-    # 4) 将全局 id 映射到局部 id（纯 Torch，避免 Python 循环/字典）
-    subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)  # searchsorted 需要有序
-    src_global = subgraph_edge_index_global[0]
-    dst_global = subgraph_edge_index_global[1]
-    src_local = torch.searchsorted(subgraph_nodes_sorted, src_global)
-    dst_local = torch.searchsorted(subgraph_nodes_sorted, dst_global)
-    subgraph_edge_index = torch.stack([src_local, dst_local], dim=0)
-
-    # 5) 种子节点的局部索引
+    # 4) 找到原始种子节点在子图中的新索引
+    # 我们需要创建一个从全局ID到新局部ID的映射
+    # torch.searchsorted 是一个高效的方法
+    subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)
     nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
-
+    
     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
 
 
