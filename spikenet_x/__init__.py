@@ -1,15 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-SpikeNet-X package
-
-Exports the core building blocks specified in `提示词.md`:
-- LearnableDelayLine
-- SpikingTemporalAttention (dense fallback implementation)
-- LIFCell
-- SpikeNetXLayer
-- Masked ops helpers and RelativeTimeEncoding
-"""
-
+# spikenet_x/__init__.py
 from .masked_ops import (
     masked_softmax,
     masked_topk_softmax,
@@ -18,22 +7,16 @@ from .masked_ops import (
     NEG_INF,
 )
 from .rel_time import RelativeTimeEncoding
-from .delayline import LearnableDelayLine
-from .sta import SpikingTemporalAttention
-from .sta_sparse import SparseSpikingTemporalAttention
 from .lif_cell import LIFCell
-from .spikenetx_layer import SpikeNetXLayer
+from .new_modules import *
+from .spiketdanet_layer import SpikeTDANetLayer
+from .model import SpikeTDANet
 
 __all__ = [
-    "masked_softmax",
-    "masked_topk_softmax",
-    "topk_mask_logits",
-    "fill_masked_",
-    "NEG_INF",
-    "RelativeTimeEncoding",
-    "LearnableDelayLine",
-    "SpikingTemporalAttention",
-    "SparseSpikingTemporalAttention",
-    "LIFCell",
-    "SpikeNetXLayer",
+    # masked_ops
+    "masked_softmax", "masked_topk_softmax", "topk_mask_logits", "fill_masked_", "NEG_INF",
+    # Core components
+    "RelativeTimeEncoding", "LIFCell", "SpikeTDANetLayer", "SpikeTDANet",
+    # New modules
+    "SpatialGNNWrapper", "DelayLine", "STAGNNAggregator",
 ]

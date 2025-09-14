@@ -238,9 +238,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 21381 bytes
+- Size: 21401 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-15 01:01:24
+- Modified: 2025-09-15 01:17:11
 
 ### Code
 
@@ -449,8 +449,8 @@
 202 |                     help='Smooth factor for surrogate learning. (default: 1.0)')
 203 | parser.add_argument('--p', type=float, default=0.5,
 204 |                     help='Percentage of sampled neighborhoods for g_t. (default: 0.5)')
-205 | parser.add_argument('--dropout', type=float, default=0.7,
-206 |                     help='Dropout probability. (default: 0.7)')
+205 | parser.add_argument('--dropout', type=float, default=0.65,
+206 |                     help='Dropout probability. (default: 0.65)')
 207 | parser.add_argument('--epochs', type=int, default=100,
 208 |                     help='Number of training epochs. (default: 100)')
 209 | parser.add_argument('--concat', action='store_true',
@@ -549,8 +549,8 @@
 302 |             
 303 |             # ---- 脉冲率正则（稳定早期训练，目标平均放电率≈0.1）
 304 |             spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
-305 |             loss = loss + 2e-5 * (spike_rate - 0.1).abs()
-306 |             
+305 |             if epoch > 10:
+306 |                 loss = loss + 2e-5 * (spike_rate - 0.1).abs()
 307 |             loss.backward()
 308 |             optimizer.step()
 309 |             total_loss += loss.item()
@@ -3004,9 +3004,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 4914 bytes
+- Size: 4913 bytes
 - Created: 2025-08-22 12:57:19
-- Modified: 2025-08-22 12:57:41
+- Modified: 2025-09-15 01:09:53
 
 ### Code
 
@@ -3077,7 +3077,7 @@
  64 |         self.beta = float(beta)
  65 | 
  66 |         # U: R^d -> R（共享于所有节点），无偏置避免电流漂移
- 67 |         self.proj = nn.Linear(d, 1, bias=False)
+ 67 |         self.proj = nn.Linear(d, 1, bias=True)
  68 | 
  69 |         # 将标量参数注册为 buffer，便于脚本化与移动设备
  70 |         self.register_buffer("lambda_mem", torch.as_tensor(lambda_mem, dtype=torch.float32))

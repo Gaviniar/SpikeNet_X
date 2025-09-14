@@ -10,9 +10,10 @@ from tqdm import tqdm
 
 from spikenet import dataset, neuron
 from spikenet.layers import SAGEAggregator
-from spikenet_x.model import SpikeNetX
-from texttable import Texttable # Added for tab_printer
-import numpy as np # Added for set_seed
+# 更改导入，直接使用新模型名称
+from spikenet_x.model import SpikeTDANet
+from texttable import Texttable
+import numpy as np
 
 
 def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
@@ -65,7 +66,6 @@ def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neig
     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
 
 
-
 def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -75,7 +75,7 @@ def tab_printer(args):
     """Function to print the logs in a nice tabular format."""
     args = vars(args)
     keys = sorted(args.keys())
-    t = Texttable() 
+    t = Texttable()
     t.add_rows([["Parameter", "Value"]] +  [[k.replace("_"," "), args[k]] for k in keys])
     print(t.draw())
 
@@ -86,9 +86,9 @@ class SpikeNet(nn.Module):
                  surrogate='triangle', sizes=[5, 2], concat=False, act='LIF'):
 
         super().__init__()
-        
+
         from spikenet.utils import RandomWalkSampler, Sampler, add_selfloops
-        
+
         tau = 1.0
         if sampler == 'rw':
             self.sampler = [RandomWalkSampler(
@@ -177,8 +177,9 @@ class SpikeNet(nn.Module):
 
 
 parser = argparse.ArgumentParser()
+# 更新命令行参数以反映新模型名称
 parser.add_argument("--model", nargs="?", default="spikenet",
-                    help="Model to use ('spikenet', 'spikenetx'). (default: spikenet)")
+                    help="Model to use ('spikenet', 'spiketdanet'). (default: spikenet)")
 parser.add_argument("--dataset", nargs="?", default="DBLP",
                     help="Datasets (DBLP, Tmall, Patent). (default: DBLP)")
 parser.add_argument('--sizes', type=int, nargs='+', default=[5, 2], help='Neighborhood sampling size for each layer. (default: [5, 2])')
@@ -213,12 +214,9 @@ parser.add_argument('--seed', type=int, default=2022,
 parser.add_argument('--datapath', type=str, default='./data',
                     help='Wheres your data?, Default is ./data')
 
-# SpikeNet-X specific args
-parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeNet-X. (default: 4)')
-parser.add_argument('--topk', type=int, default=16, help='Top-k neighbors for SpikeNet-X attention. (default: 16)')
-parser.add_argument('--W', type=int, default=32, help='Time window size for SpikeNet-X. (default: 32)')
-parser.add_argument('--attn_impl', type=str, default='dense', choices=['dense','sparse'],
-                    help='Attention kernel for SpikeNet-X: "dense" (recommended for subgraph) or "sparse". (default: "dense")')
+# SpikeTDANet specific args
+parser.add_argument('--heads', type=int, default=4, help='Number of attention heads for SpikeTDANet. (default: 4)')
+parser.add_argument('--W', type=int, default=32, help='Time window size for SpikeTDANet. (default: 32)')
 parser.add_argument('--readout', type=str, default='mean', choices=['last','mean'],
                     help="Temporal readout for logits. (default: 'mean')")
 
@@ -269,39 +267,33 @@ val_loader = DataLoader(data.test_nodes.tolist() if data.val_nodes is None else 
                         pin_memory=False, batch_size=args.batch_size, shuffle=False)
 test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=args.batch_size, shuffle=False)
 
-if args.model == 'spikenetx':
-    
-    def train_spikenetx():
+# 更新模型选择逻辑
+if args.model == 'spiketdanet':
+
+    def train_model():
         model.train()
         total_loss = 0
-        # Let's use a fixed number of neighbors for now to control memory
-        num_neighbors_to_sample = 10 
+        num_neighbors_to_sample = 10
         for nodes in tqdm(train_loader, desc='Training'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
-            
+
             H0_subgraph = H0_full[:, subgraph_nodes, :]
-            # --- 强校验：子图边必须是局部 id，且与特征 N 一致 ---
-            
+
             N_sub = subgraph_nodes.numel()
-            assert subgraph_edge_index.dtype == torch.long, "subgraph_edge_index 必须是 torch.long（int64）"
-            assert subgraph_edge_index.numel() > 0, "子图没有边（可能邻居采样太小或图太稀疏）"
-            assert int(subgraph_edge_index.max().item()) < N_sub and int(subgraph_edge_index.min().item()) >= 0, \
-                f"边索引越界：[{int(subgraph_edge_index.min())}, {int(subgraph_edge_index.max())}]，但 N_sub={N_sub}"
-            # H0_subgraph 形状应为 [T, N_sub, d_in]
+            if subgraph_edge_index.numel() > 0:
+                assert int(subgraph_edge_index.max().item()) < N_sub and int(subgraph_edge_index.min().item()) >= 0, \
+                    f"边索引越界：[{int(subgraph_edge_index.min())}, {int(subgraph_edge_index.max())}]，但 N_sub={N_sub}"
             assert H0_subgraph.size(1) == N_sub, f"H0_subgraph 第二维应等于 N_sub，但拿到 {H0_subgraph.size()} vs N_sub={N_sub}"
 
             optimizer.zero_grad()
-            
-            # The model's output `repr` and `logits` are for all nodes in the subgraph
+
             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
             subgraph_logits = output['logits']
 
-            # We only compute the loss on the seed nodes of the batch
             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
-            
-            # ---- 脉冲率正则（稳定早期训练，目标平均放电率≈0.1）
-            spike_rate = output['S_list'].float().mean()     # [L,T,N] -> scalar
+
+            spike_rate = output['S_list'].float().mean()
             if epoch > 10:
                 loss = loss + 2e-5 * (spike_rate - 0.1).abs()
             loss.backward()
@@ -310,73 +302,69 @@ if args.model == 'spikenetx':
         return total_loss / len(train_loader)
 
     @torch.no_grad()
-    def test_spikenetx(loader):
+    def test_model(loader):
         model.eval()
         logits_list = []
         labels_list = []
-        num_neighbors_to_sample = 25 # Use the same for testing
+        num_neighbors_to_sample = 25
         for nodes in tqdm(loader, desc='Testing'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
-            
+
             H0_subgraph = H0_full[:, subgraph_nodes, :]
-            
+
             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
             subgraph_logits = output['logits']
-            
+
             logits_list.append(subgraph_logits[nodes_local_index].cpu())
             labels_list.append(y[nodes].cpu())
-        
+
         logits = torch.cat(logits_list, dim=0).argmax(1)
         labels = torch.cat(labels_list, dim=0)
 
         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
         return macro, micro
-    
-    # --- SpikeNet-X Training and Evaluation (with batching) ---
+
+    # --- SpikeTDANet Training and Evaluation ---
 
     # 1. Data Preparation (Full graph data)
-    print("Preparing data for SpikeNet-X...")
+    print("Preparing data for SpikeTDANet...")
     T = len(data)
     N = data.num_nodes
     d_in = data.num_features
-    
+
     edge_list = [snapshot.edge_index for snapshot in data]
     edge_index_full = torch.unique(torch.cat(edge_list, dim=1), dim=1).to(device)
     H0_full = torch.stack([snapshot.x for snapshot in data], dim=0).to(device)
     time_idx_full = torch.arange(T, device=device)
 
     # 2. Model, Optimizer, Loss
-    model = SpikeNetX(
+    model = SpikeTDANet(
         d_in=d_in,
         d=args.hids[0],
         layers=len(args.sizes),
         heads=args.heads,
-        out_dim=data.num_classes,
-        topk=args.topk,
         W=args.W,
-        attn_impl=args.attn_impl,
-        readout=args.readout,        # 新增：使用 mean 读出
-        lif_tau_theta=0.95,          # 更“活”的神经元
+        out_dim=data.num_classes,
+        readout=args.readout,
+        lif_tau_theta=0.95,
         lif_gamma=0.20,
-        lif_beta=1.0,                # 先用 1.0（见第 4 步 10% epoch 后切回 2.0）
+        lif_beta=1.0,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     loss_fn = nn.CrossEntropyLoss()
-    
-    
+
+
     # --- Test-only mode ---
     if args.test_model_path:
         print(f"Loading model from {args.test_model_path} for testing...")
         checkpoint = torch.load(args.test_model_path, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
-        test_macro, test_micro = test_spikenetx(test_loader)
+        test_macro, test_micro = test_model(test_loader)
         print(f"Test Results: Macro-F1={test_macro:.4f}, Micro-F1={test_micro:.4f}")
         exit(0)
-
-
 
     # 3. Training Loop
     start_epoch = 1
@@ -391,28 +379,27 @@ if args.model == 'spikenetx':
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
-            best_val_metric = checkpoint.get('best_val_metric', 0) # Use .get for backward compatibility
+            best_val_metric = checkpoint.get('best_val_metric', 0)
             print(f"Resumed from epoch {start_epoch-1}. Best val metric so far: {best_val_metric:.4f}")
         else:
             print(f"Warning: Checkpoint path {args.resume_path} not found. Starting from scratch.")
 
-    print("Starting SpikeNet-X training...")
+    print("Starting SpikeTDANet training...")
     start = time.time()
     for epoch in range(start_epoch, args.epochs + 1):
         if epoch == int(0.1 * args.epochs):
-            for blk in model.blocks:
-                blk.neuron.beta = 2.0
-                
-        train_spikenetx()
-        val_metric = test_spikenetx(val_loader)
-        test_metric = test_spikenetx(test_loader)
-        
+            for layer in model.layers:
+                layer.lif_cell.beta = 2.0
+
+        train_model()
+        val_metric = test_model(val_loader)
+        test_metric = test_model(test_loader)
+
         is_best = val_metric[1] > best_val_metric
         if is_best:
             best_val_metric = val_metric[1]
             best_test_metric = test_metric
 
-            # --- Save checkpoint ---
             os.makedirs(args.checkpoint_dir, exist_ok=True)
             checkpoint_path = os.path.join(args.checkpoint_dir, f'best_model_{args.dataset}.pth')
             torch.save({
@@ -473,7 +460,3 @@ else:
         end = time.time()
         print(
             f'Epoch: {epoch:03d}, Val: {val_metric[1]:.4f}, Test: {test_metric[1]:.4f}, Best: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time elapsed {end-start:.2f}s')
-
-    # save bianry node embeddings (spikes)
-    # emb = model.encode(torch.arange(data.num_nodes)).cpu()
-    # torch.save(emb, 'emb.pth')
