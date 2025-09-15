@@ -1,3 +1,5 @@
+# 文件: spikenet_x/spiketdanet_layer.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -44,7 +46,11 @@ class SpikeTDANetLayer(nn.Module):
         self.aggregator = STAGNNAggregator(d_in=channels, d=channels, heads=heads, W=W, **kwargs)
         
         # 4. 脉冲发放
-        self.msg_proj = nn.Linear(channels, 1) # 投影聚合消息到标量电流
+        # ========== [修改开始] ==========
+        # 移除了 self.msg_proj = nn.Linear(channels, 1)
+        # 不再需要一个线性层来制造信息瓶颈。
+        # ========== [修改结束] ==========
+        
         # 使用分离出来的lif_kwargs进行初始化
         self.lif_cell = LIFCell(**lif_kwargs)
         
@@ -71,8 +77,12 @@ class SpikeTDANetLayer(nn.Module):
         aggregated_message = self.aggregator(x, spikes, edge_index, time_idx)
 
         # 4. 脉冲发放
-        # [T, N, C] -> [T, N, 1] -> [T, N]
-        input_current = self.msg_proj(aggregated_message).squeeze(-1)
+        # ========== [修改开始] ==========
+        # 将 [T, N, C] -> [T, N]
+        # 直接对特征维度求和来生成输入电流，而不是通过一个破坏性的线性投影。
+        input_current = aggregated_message.sum(dim=-1)
+        # ========== [修改结束] ==========
+        
         new_spikes, new_v, _ = self.lif_cell(input_current)
 
         # 5. 最终输出 (FFN + 宏观残差)

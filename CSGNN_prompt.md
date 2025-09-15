@@ -236,9 +236,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 19710 bytes
+- Size: 19759 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-15 03:36:44
+- Modified: 2025-09-15 12:22:52
 
 ### Code
 
@@ -634,7 +634,7 @@
 389 |     for epoch in range(start_epoch, args.epochs + 1):
 390 |         if epoch == int(0.1 * args.epochs):
 391 |             for layer in model.layers:
-392 |                 layer.lif_cell.beta = 2.0
+392 |                 layer.lif_cell.beta = torch.tensor(2.0, device=layer.lif_cell.beta.device)
 393 | 
 394 |         train_model()
 395 |         val_metric = test_model(val_loader)

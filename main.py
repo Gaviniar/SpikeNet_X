@@ -270,9 +270,12 @@ test_loader = DataLoader(data.test_nodes.tolist(), pin_memory=False, batch_size=
 # 更新模型选择逻辑
 if args.model == 'spiketdanet':
 
+    # 替换 main.py 中的 train_model 函数
     def train_model():
         model.train()
         total_loss = 0
+        total_spike_rate = 0  # <--- 新增：用于累加脉冲率
+        num_batches = 0       # <--- 新增：用于计算平均值
         num_neighbors_to_sample = 10
         for nodes in tqdm(train_loader, desc='Training'):
             nodes = nodes.to(device)
@@ -299,7 +302,12 @@ if args.model == 'spiketdanet':
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        return total_loss / len(train_loader)
+            total_spike_rate += spike_rate.item() # <--- 新增：累加当前batch的脉冲率
+            num_batches += 1                      # <--- 新增：批次计数
+            
+        avg_loss = total_loss / len(train_loader)
+        avg_spike_rate = total_spike_rate / num_batches 
+        return avg_loss, avg_spike_rate 
 
     @torch.no_grad()
     def test_model(loader):
@@ -386,12 +394,16 @@ if args.model == 'spiketdanet':
 
     print("Starting SpikeTDANet training...")
     start = time.time()
+    # 替换 main.py 中的主训练循环
     for epoch in range(start_epoch, args.epochs + 1):
         if epoch == int(0.1 * args.epochs):
             for layer in model.layers:
                 layer.lif_cell.beta = torch.tensor(2.0, device=layer.lif_cell.beta.device)
 
-        train_model()
+        # ========== [修改开始] ==========
+        train_loss, train_spike_rate = train_model() # 接收返回的脉冲率
+        # ========== [修改结束] ==========
+        
         val_metric = test_model(val_loader)
         test_metric = test_model(test_loader)
 
@@ -412,10 +424,14 @@ if args.model == 'spiketdanet':
             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
 
         end = time.time()
+        # ========== [修改开始] ==========
+        # 在打印信息中加入 train_loss 和 train_spike_rate
         print(
-            f'Epoch: {epoch:03d}, Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
+            f'Epoch: {epoch:03d}, Loss: {train_loss:.4f}, Spike Rate: {train_spike_rate:.4f}, '
+            f'Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
         )
+        # ========== [修改结束] ==========
 
 else:
     # --- Original SpikeNet Training and Evaluation ---
