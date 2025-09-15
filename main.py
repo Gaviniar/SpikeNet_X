@@ -298,7 +298,7 @@ if args.model == 'spiketdanet':
 
             spike_rate = output['S_list'].float().mean()
             if epoch > 10:
-                loss = loss + 2e-5 * (spike_rate - 0.1).abs()
+                loss = loss + 2e-5 * (spike_rate - 0.15).abs()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()

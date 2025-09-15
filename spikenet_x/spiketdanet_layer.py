@@ -46,10 +46,8 @@ class SpikeTDANetLayer(nn.Module):
         self.aggregator = STAGNNAggregator(d_in=channels, d=channels, heads=heads, W=W, **kwargs)
         
         # 4. 脉冲发放
-        # ========== [修改开始] ==========
-        # 移除了 self.msg_proj = nn.Linear(channels, 1)
-        # 不再需要一个线性层来制造信息瓶颈。
-        # ========== [修改结束] ==========
+        self.msg_proj = nn.Linear(channels, 1)
+
         
         # 使用分离出来的lif_kwargs进行初始化
         self.lif_cell = LIFCell(**lif_kwargs)
@@ -71,23 +69,20 @@ class SpikeTDANetLayer(nn.Module):
 
         # 2. 时间延迟建模
         x_delayed = self.delay_line(x)
-        x = self.norm2(x + x_delayed)
+        x_processed = self.norm2(x + x_delayed)
 
         # 3. 时空聚合
-        aggregated_message = self.aggregator(x, spikes, edge_index, time_idx)
+        aggregated_message = self.aggregator(x_processed, spikes, edge_index, time_idx)
 
         # 4. 脉冲发放
-        # ========== [修改开始] ==========
-        # 将 [T, N, C] -> [T, N]
-        # 直接对特征维度求和来生成输入电流，而不是通过一个破坏性的线性投影。
-        input_current = aggregated_message.sum(dim=-1)
-        # ========== [修改结束] ==========
+        input_current = self.msg_proj(aggregated_message).squeeze(-1)
+
         
         new_spikes, new_v, _ = self.lif_cell(input_current)
 
         # 5. 最终输出 (FFN + 宏观残差)
         # FFN作用在聚合后的消息上，这是最富含信息的张量
         ffn_out = self.ffn(aggregated_message)
-        layer_output_features = self.final_norm(initial_input + ffn_out)
+        layer_output_features = self.final_norm(x_processed + self.ffn(aggregated_message))
 
         return layer_output_features, new_spikes
