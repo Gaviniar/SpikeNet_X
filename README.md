@@ -1,4 +1,3 @@
-
 # Spike-TDANet: 脉冲时序延迟注意力网络
 
 ## 目录
@@ -285,6 +284,7 @@ spikenet_x/
    * **示例命令**:
      ```bash
      python main.py --model spiketdanet --dataset DBLP --epochs 100 --lr 5e-4 --batch_size 512 --hids 64 --heads 4 --W 16
+     python main.py  --model spiketdanet  --dataset dblp  --hids 128 10  --epochs 100  --lr 0.005  --heads 4  --W 32  --batch_size 512  --datapath /data4/zhengzhuoyu/data  --train_size 0.8
      ```
    * **关键参数**:
      * `--model spiketdanet`: **必须指定**，以使用新模型。
@@ -307,4 +307,3 @@ spikenet_x/
      ```
 
 > provided by [EasyChat](http://iSq7n9s0OQ.site.llm99.com/)
->

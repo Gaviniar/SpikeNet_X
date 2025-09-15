@@ -389,7 +389,7 @@ if args.model == 'spiketdanet':
     for epoch in range(start_epoch, args.epochs + 1):
         if epoch == int(0.1 * args.epochs):
             for layer in model.layers:
-                layer.lif_cell.beta = 2.0
+                layer.lif_cell.beta = torch.tensor(2.0, device=layer.lif_cell.beta.device)
 
         train_model()
         val_metric = test_model(val_loader)

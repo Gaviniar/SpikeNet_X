@@ -236,9 +236,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 19847 bytes
+- Size: 19710 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-15 02:32:32
+- Modified: 2025-09-15 03:36:44
 
 ### Code
 
@@ -259,55 +259,55 @@
  14 | from spikenet_x.model import SpikeTDANet
  15 | from texttable import Texttable
  16 | import numpy as np
- 17 | 
- 18 | 
- 19 | def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1):
- 20 |     """
- 21 |     以一批种子节点 nodes 抽 1-hop 子图，并返回：
- 22 |       - subgraph_nodes: 子图包含的全局节点 id，形状 [N_sub]
- 23 |       - subgraph_edge_index: 子图边(局部id)，形状 [2, E_sub]
- 24 |       - nodes_local_index: 种子在子图里的局部索引，形状 [B]
- 25 |     关键改动：保留子图内部的“所有边”（src/dst 都在子图内），解锁多层传播。
- 26 |     """
- 27 |     row, col = edge_index_full
- 28 |     device = row.device
- 29 |     nodes = nodes.to(device)
- 30 | 
- 31 |     # 1) 先收集邻居（全收或限量）
- 32 |     if num_neighbors == -1:
- 33 |         mask = torch.isin(row, nodes)
- 34 |         neighbors = col[mask]
- 35 |     else:
- 36 |         # 简洁做法：对所有与种子相连的邻居做全局采样，期望规模 ≈ B * num_neighbors
- 37 |         mask = torch.isin(row, nodes)
- 38 |         neighbors_all = col[mask]
- 39 |         target = nodes.numel() * int(num_neighbors)
- 40 |         if neighbors_all.numel() > target > 0:
- 41 |             perm = torch.randperm(neighbors_all.numel(), device=device)[:target]
+ 17 | from torch_geometric.utils import subgraph
+ 18 | from typing import Tuple
+ 19 | 
+ 20 | def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+ 21 |     """
+ 22 |     高效的1-hop子图采样函数。
+ 23 |     - 强制限制每个节点的邻居数量，以控制计算复杂度。
+ 24 |     - 使用 torch_geometric.utils.subgraph 进行快速的边提取和节点重标签。
+ 25 |     """
+ 26 |     row, col = edge_index_full
+ 27 |     device = row.device
+ 28 |     nodes = nodes.to(device)
+ 29 | 
+ 30 |     # 1) 找到所有与种子节点相连的边和邻居
+ 31 |     node_mask = torch.isin(row, nodes)
+ 32 |     edge_index_subset = edge_index_full[:, node_mask]
+ 33 |     neighbors_all = torch.unique(edge_index_subset[1])
+ 34 |     
+ 35 |     # 2) 如果需要，对邻居进行采样
+ 36 |     if num_neighbors > 0 and neighbors_all.numel() > 0:
+ 37 |         # 为了简化，我们进行全局采样。更复杂的实现可以做到per-node采样。
+ 38 |         # 即使是全局采样，也能有效控制子图规模。
+ 39 |         target_num_neighbors = nodes.numel() * num_neighbors
+ 40 |         if neighbors_all.numel() > target_num_neighbors:
+ 41 |             perm = torch.randperm(neighbors_all.numel(), device=device)[:target_num_neighbors]
  42 |             neighbors = neighbors_all[perm]
  43 |         else:
  44 |             neighbors = neighbors_all
- 45 | 
- 46 |     # 2) 子图节点集合：种子 ∪ 采样邻居
- 47 |     subgraph_nodes = torch.unique(torch.cat([nodes, neighbors], dim=0))
- 48 | 
- 49 |     # 3) **关键修复**：仅保留子图内部的边（src/dst 都在 subgraph_nodes）
- 50 |     mask_src = torch.isin(row, subgraph_nodes)
- 51 |     mask_dst = torch.isin(col, subgraph_nodes)
- 52 |     edge_mask = mask_src & mask_dst
- 53 |     subgraph_edge_index_global = edge_index_full[:, edge_mask]  # 仍是“全局 id”
- 54 | 
- 55 |     # 4) 将全局 id 映射到局部 id（纯 Torch，避免 Python 循环/字典）
- 56 |     subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)  # searchsorted 需要有序
- 57 |     src_global = subgraph_edge_index_global[0]
- 58 |     dst_global = subgraph_edge_index_global[1]
- 59 |     src_local = torch.searchsorted(subgraph_nodes_sorted, src_global)
- 60 |     dst_local = torch.searchsorted(subgraph_nodes_sorted, dst_global)
- 61 |     subgraph_edge_index = torch.stack([src_local, dst_local], dim=0)
- 62 | 
- 63 |     # 5) 种子节点的局部索引
+ 45 |     else:
+ 46 |         neighbors = neighbors_all
+ 47 | 
+ 48 |     # 3) 构建子图节点集并获取重标签后的边
+ 49 |     subgraph_nodes = torch.unique(torch.cat([nodes, neighbors]))
+ 50 |     
+ 51 |     # 使用PyG的subgraph函数，它会返回重标签后的边索引
+ 52 |     # relabel_nodes=True 是关键
+ 53 |     subgraph_edge_index, _ = subgraph(
+ 54 |         subset=subgraph_nodes,
+ 55 |         edge_index=edge_index_full,
+ 56 |         relabel_nodes=True,
+ 57 |         num_nodes=None # PyG会自动推断
+ 58 |     )
+ 59 | 
+ 60 |     # 4) 找到原始种子节点在子图中的新索引
+ 61 |     # 我们需要创建一个从全局ID到新局部ID的映射
+ 62 |     # torch.searchsorted 是一个高效的方法
+ 63 |     subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)
  64 |     nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
- 65 | 
+ 65 |     
  66 |     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
  67 | 
  68 | 
@@ -2557,7 +2557,7 @@
 - Language: python
 - Size: 2157 bytes
 - Created: 2025-08-22 13:07:03
-- Modified: 2025-09-15 02:34:17
+- Modified: 2025-09-15 03:51:08
 
 ### Code
 
@@ -2646,7 +2646,7 @@
 - Language: python
 - Size: 6544 bytes
 - Created: 2025-08-22 12:52:55
-- Modified: 2025-08-22 12:53:38
+- Modified: 2025-09-15 03:49:37
 
 ### Code
 
@@ -3027,7 +3027,7 @@
 - Language: python
 - Size: 3239 bytes
 - Created: 2025-09-15 02:24:13
-- Modified: 2025-09-15 02:39:00
+- Modified: 2025-09-15 03:45:36
 
 ### Code
 
@@ -3834,175 +3834,161 @@
 
 - Extension: .py
 - Language: python
-- Size: 7153 bytes
+- Size: 6051 bytes
 - Created: 2025-09-15 02:23:37
-- Modified: 2025-09-15 02:23:43
+- Modified: 2025-09-15 04:00:29
 
 ### Code
 
 ```python
   1 | # spikenet_x/new_modules/sta_gnn_agg.py
-  2 | # 内容基本迁移自 sta_sparse.py，并重命名类
-  3 | 
-  4 | from __future__ import annotations
-  5 | from typing import Optional, Tuple
-  6 | import torch
-  7 | import torch.nn as nn
-  8 | from ..rel_time import RelativeTimeEncoding
-  9 | 
- 10 | # Helper functions from sta_sparse.py (for segment_amax)
- 11 | def _has_scatter_reduce_tensor() -> bool:
- 12 |     return hasattr(torch.Tensor, "scatter_reduce_")
- 13 | 
- 14 | def _try_import_torch_scatter():
- 15 |     try:
- 16 |         import torch_scatter
- 17 |         return torch_scatter
- 18 |     except Exception:
- 19 |         return None
- 20 | 
- 21 | _TORCH_SCATTER = _try_import_torch_scatter()
- 22 | _HAS_TSR = _has_scatter_reduce_tensor()
- 23 | 
- 24 | def _segment_amax_1d(x: torch.Tensor, index: torch.Tensor, K: int) -> torch.Tensor:
- 25 |     device, dtype = x.device, x.dtype
- 26 |     neg_inf = torch.tensor(-1e30, dtype=dtype, device=device)
- 27 |     if _HAS_TSR:
- 28 |         init_val = torch.full((K,), neg_inf.item(), device=device, dtype=dtype)
- 29 |         out = init_val.scatter_reduce(0, index, x, reduce="amax", include_self=False)
- 30 |         return out
- 31 |     if _TORCH_SCATTER is not None:
- 32 |         out, _ = _TORCH_SCATTER.scatter_max(x, index, dim=0, dim_size=K)
- 33 |         cnt = torch.zeros(K, device=device, dtype=torch.long)
- 34 |         cnt.index_add_(0, index, torch.ones_like(index, dtype=torch.long))
- 35 |         out = torch.where(cnt > 0, out, neg_inf)
- 36 |         return out
- 37 |     raise ImportError("STAGNNAggregator requires either PyTorch >= 1.12 or torch_scatter.")
- 38 | 
- 39 | 
- 40 | class STAGNNAggregator(nn.Module):
- 41 |     def __init__(
- 42 |         self,
- 43 |         d_in: int,
- 44 |         d: int,
- 45 |         heads: int = 4,
- 46 |         W: int = 32,
- 47 |         use_rel_bias: bool = True,
- 48 |         attn_drop: float = 0.1,
- 49 |         temp: float = 1.0,
- 50 |         pe_taus: Tuple[float, float] = (4.0, 16.0),
- 51 |         pe_n_freq: int = 3,
- 52 |     ) -> None:
- 53 |         super().__init__()
- 54 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
- 55 |         assert W >= 0, "W 必须 >= 0"
- 56 | 
- 57 |         self.d_in = int(d_in)
- 58 |         self.d = int(d)
- 59 |         self.heads = int(heads)
- 60 |         self.d_head = self.d // self.heads
- 61 |         self.W = int(W)
- 62 |         self.use_rel_bias = bool(use_rel_bias)
- 63 |         self.temp = float(temp)
- 64 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
- 65 |         d_pe = self.rel_enc.d_pe
- 66 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
- 67 |         self.W_k = nn.Linear(d_in + d_pe, self.d, bias=False)
- 68 |         self.W_v = nn.Linear(d_in, self.d, bias=False)
- 69 |         self.p_drop = float(attn_drop)
- 70 |         self.scale = self.d_head ** -0.5
- 71 |         self.reset_parameters()
- 72 | 
- 73 |     def reset_parameters(self) -> None:
- 74 |         nn.init.xavier_uniform_(self.W_q.weight)
- 75 |         nn.init.xavier_uniform_(self.W_k.weight)
- 76 |         nn.init.xavier_uniform_(self.W_v.weight)
- 77 | 
- 78 |     @staticmethod
- 79 |     def _check_edges(edge_index: torch.Tensor, N: int) -> None:
- 80 |         if edge_index.numel() > 0:
- 81 |             assert int(edge_index.min()) >= 0 and int(edge_index.max()) < N, "edge_index 越界"
- 82 | 
- 83 |     def _edge_arrays(self, edge_index: torch.Tensor, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
- 84 |         src = edge_index[0].to(device=device, dtype=torch.long)
- 85 |         dst = edge_index[1].to(device=device, dtype=torch.long)
- 86 |         return src, dst
- 87 | 
- 88 |     @torch.no_grad()
- 89 |     def _drop_mask(self, shape: torch.Size, device: torch.device) -> Optional[torch.Tensor]:
- 90 |         if not self.training or self.p_drop <= 0.0:
- 91 |             return None
- 92 |         return (torch.rand(shape, device=device) > self.p_drop)
- 93 | 
- 94 |     def forward(
- 95 |         self,
- 96 |         H_tilde: torch.Tensor,
- 97 |         S: torch.Tensor,
- 98 |         edge_index: torch.Tensor,
- 99 |         time_idx: torch.Tensor,
-100 |     ) -> torch.Tensor:
-101 |         T, N, Din = H_tilde.shape
-102 |         device, dtype = H_tilde.device, H_tilde.dtype
-103 |         self._check_edges(edge_index, N)
-104 |         src, dst = self._edge_arrays(edge_index, device)
-105 |         pe_table, rel_bias = self.rel_enc(time_idx.to(device), W=self.W)
-106 |         if not self.use_rel_bias:
-107 |             rel_bias = torch.zeros_like(rel_bias)
-108 | 
-109 |         Q_all = self.W_q(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3).contiguous()
-110 |         V_all = self.W_v(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3).contiguous()
-111 |         M_out = torch.zeros((T, N, self.d), device=device, dtype=dtype)
-112 |         eps_gate = 1.0e-6
-113 | 
-114 |         for t in range(T):
-115 |             W_eff = min(self.W, t)
-116 |             Q_t = Q_all[t]
-117 |             
-118 |             max_dst_list = []
-119 |             for dt in range(W_eff + 1):
-120 |                 t_prime = t - dt
-121 |                 pe = pe_table[dt].to(dtype=dtype, device=device)
-122 |                 K_in = torch.cat([H_tilde[t_prime], pe.view(1, -1).expand(N, -1)], dim=-1)
-123 |                 K_tp = self.W_k(K_in).view(N, self.heads, self.d_head).permute(1, 0, 2).contiguous()
-124 |                 gate_log = torch.log(torch.clamp(S[t_prime], 0.0, 1.0) + eps_gate).to(dtype=dtype)
-125 |                 Q_d, K_s = Q_t[:, dst, :], K_tp[:, src, :]
-126 |                 scores = (Q_d * K_s).sum(dim=-1) * self.scale + float(rel_bias[dt]) + gate_log[src]
-127 |                 if self.temp != 1.0: scores = scores / float(self.temp)
-128 |                 m_h = torch.stack([_segment_amax_1d(scores[h], dst, N) for h in range(self.heads)])
-129 |                 max_dst_list.append(m_h)
-130 |             
-131 |             max_dst = torch.stack(max_dst_list, dim=0).max(dim=0)[0] if max_dst_list else torch.full((self.heads, N), -1e30, device=device, dtype=dtype)
-132 | 
-133 |             denom = torch.zeros((self.heads, N), device=device, dtype=dtype)
-134 |             numer = torch.zeros((self.heads, N, self.d_head), device=device, dtype=dtype)
-135 | 
-136 |             for dt in range(W_eff + 1):
-137 |                 t_prime = t - dt
-138 |                 pe = pe_table[dt].to(dtype=dtype, device=device)
-139 |                 K_in = torch.cat([H_tilde[t_prime], pe.view(1, -1).expand(N, -1)], dim=-1)
-140 |                 K_tp = self.W_k(K_in).view(N, self.heads, self.d_head).permute(1, 0, 2).contiguous()
-141 |                 V_tp = V_all[t_prime]
-142 |                 gate_log = torch.log(torch.clamp(S[t_prime], 0.0, 1.0) + eps_gate).to(dtype=dtype)
-143 |                 Q_d, K_s, V_s = Q_t[:, dst, :], K_tp[:, src, :], V_tp[:, src, :]
-144 |                 scores = (Q_d * K_s).sum(dim=-1) * self.scale + float(rel_bias[dt]) + gate_log[src]
-145 |                 if self.temp != 1.0: scores = scores / float(self.temp)
-146 |                 
-147 |                 max_g = max_dst[:, dst]
-148 |                 ex = torch.exp(scores - max_g)
-149 |                 mask = self._drop_mask(ex.shape, device=device)
-150 |                 if mask is not None: ex = ex * mask.to(dtype=ex.dtype)
-151 | 
-152 |                 for h in range(self.heads):
-153 |                     denom[h].index_add_(0, dst, ex[h])
-154 |                     contrib = ex[h].unsqueeze(-1) * V_s[h]
-155 |                     for c in range(self.d_head):
-156 |                         numer[h, :, c].index_add_(0, dst, contrib[:, c])
-157 | 
-158 |             denom = torch.clamp(denom, min=1e-12)
-159 |             msg_h = numer / denom.unsqueeze(-1)
-160 |             M_out[t] = msg_h.permute(1, 0, 2).contiguous().view(N, self.d)
-161 |             
-162 |         return M_out
+  2 | from __future__ import annotations
+  3 | from typing import Optional, Tuple
+  4 | import torch
+  5 | import torch.nn as nn
+  6 | from ..rel_time import RelativeTimeEncoding
+  7 | 
+  8 | # Helper functions for segment_amax 
+  9 | def _has_scatter_reduce_tensor() -> bool:
+ 10 |     return hasattr(torch.Tensor, "scatter_reduce_")
+ 11 | 
+ 12 | def _try_import_torch_scatter():
+ 13 |     try:
+ 14 |         import torch_scatter
+ 15 |         return torch_scatter
+ 16 |     except Exception:
+ 17 |         return None
+ 18 | 
+ 19 | _TORCH_SCATTER = _try_import_torch_scatter()
+ 20 | _HAS_TSR = _has_scatter_reduce_tensor()
+ 21 | 
+ 22 | def _segment_amax_1d(x: torch.Tensor, index: torch.Tensor, K: int) -> torch.Tensor:
+ 23 |     device, dtype = x.device, x.dtype
+ 24 |     neg_inf = torch.tensor(-1e30, dtype=dtype, device=device)
+ 25 |     if _HAS_TSR:
+ 26 |         init_val = torch.full((K,), neg_inf.item(), device=device, dtype=dtype)
+ 27 |         out = init_val.scatter_reduce(0, index, x, reduce="amax", include_self=False)
+ 28 |         return out
+ 29 |     if _TORCH_SCATTER is not None:
+ 30 |         out, _ = _TORCH_SCATTER.scatter_max(x, index, dim=0, dim_size=K)
+ 31 |         cnt = torch.zeros(K, device=device, dtype=torch.long)
+ 32 |         cnt.index_add_(0, index, torch.ones_like(index, dtype=torch.long))
+ 33 |         out = torch.where(cnt > 0, out, neg_inf)
+ 34 |         return out
+ 35 |     raise ImportError("STAGNNAggregator requires either PyTorch >= 1.12 or torch_scatter.")
+ 36 | 
+ 37 | 
+ 38 | class STAGNNAggregator(nn.Module):
+ 39 |     def __init__(
+ 40 |         self,
+ 41 |         d_in: int,
+ 42 |         d: int,
+ 43 |         heads: int = 4,
+ 44 |         W: int = 32,
+ 45 |         use_rel_bias: bool = True,
+ 46 |         attn_drop: float = 0.1,
+ 47 |         temp: float = 1.0,
+ 48 |         pe_taus: Tuple[float, float] = (4.0, 16.0),
+ 49 |         pe_n_freq: int = 3,
+ 50 |     ) -> None:
+ 51 |         super().__init__()
+ 52 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
+ 53 |         self.d_in, self.d, self.heads, self.d_head, self.W = d_in, d, heads, d // heads, W
+ 54 |         self.use_rel_bias, self.temp, self.p_drop = use_rel_bias, temp, attn_drop
+ 55 |         
+ 56 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
+ 57 |         d_pe = self.rel_enc.d_pe
+ 58 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
+ 59 |         self.W_k = nn.Linear(d_in + d_pe, self.d, bias=False)
+ 60 |         self.W_v = nn.Linear(d_in, self.d, bias=False)
+ 61 |         self.scale = self.d_head ** -0.5
+ 62 |         self.reset_parameters()
+ 63 | 
+ 64 |     def reset_parameters(self) -> None:
+ 65 |         nn.init.xavier_uniform_(self.W_q.weight)
+ 66 |         nn.init.xavier_uniform_(self.W_k.weight)
+ 67 |         nn.init.xavier_uniform_(self.W_v.weight)
+ 68 | 
+ 69 |     def forward(
+ 70 |         self,
+ 71 |         H_tilde: torch.Tensor,
+ 72 |         S: torch.Tensor,
+ 73 |         edge_index: torch.Tensor,
+ 74 |         time_idx: torch.Tensor,
+ 75 |     ) -> torch.Tensor:
+ 76 |         T, N, _ = H_tilde.shape
+ 77 |         device, dtype = H_tilde.device, H_tilde.dtype
+ 78 |         src, dst = edge_index[0].to(device), edge_index[1].to(device)
+ 79 |         E = src.numel()
+ 80 | 
+ 81 |         pe_table, rel_bias = self.rel_enc(time_idx.to(device), W=self.W)
+ 82 |         if not self.use_rel_bias:
+ 83 |             rel_bias = torch.zeros_like(rel_bias)
+ 84 | 
+ 85 |         Q_all = self.W_q(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3)
+ 86 |         
+ 87 |         M_out = torch.zeros((T, N, self.d), device=device, dtype=dtype)
+ 88 |         eps_gate = 1.0e-6
+ 89 | 
+ 90 |         for t in range(T):
+ 91 |             if E == 0: continue
+ 92 |             
+ 93 |             W_eff = min(self.W, t)
+ 94 |             dt_range = torch.arange(W_eff + 1, device=device)
+ 95 |             t_prime_range = t - dt_range
+ 96 | 
+ 97 |             Q_d_t = Q_all[t, :, dst, :]
+ 98 |             
+ 99 |             H_src_window = H_tilde[t_prime_range][:, src, :]
+100 |             pe_window = pe_table[:W_eff+1].unsqueeze(1).expand(-1, E, -1)
+101 |             
+102 |             K_in_flat = torch.cat([H_src_window, pe_window], dim=-1).view(-1, self.d_in + self.rel_enc.d_pe)
+103 |             K_s_window = self.W_k(K_in_flat).view(W_eff + 1, E, self.heads, self.d_head).permute(2, 0, 1, 3)
+104 |             
+105 |             V_s_window = self.W_v(H_src_window).view(W_eff + 1, E, self.heads, self.d_head).permute(2, 0, 1, 3)
+106 | 
+107 |             gate_log_window = torch.log(S[t_prime_range][:, src] + eps_gate)
+108 |             rel_bias_window = rel_bias[:W_eff+1]
+109 | 
+110 |             scores = torch.einsum('hed,hwed->hwe', Q_d_t, K_s_window) * self.scale
+111 |             
+112 |             ### --- MODIFICATION START: Replaced in-place additions --- ###
+113 |             scores = scores + rel_bias_window.view(1, -1, 1)
+114 |             scores = scores + gate_log_window.view(1, -1, E)
+115 |             ### --- MODIFICATION END --- ###
+116 |             
+117 |             if self.temp != 1.0: scores /= self.temp
+118 |             
+119 |             scores_flat = scores.reshape(self.heads, -1)
+120 |             dst_expanded = dst.repeat(W_eff + 1)
+121 | 
+122 |             max_scores_per_dst = torch.stack([_segment_amax_1d(s, dst_expanded, N) for s in scores_flat])
+123 |             max_g = max_scores_per_dst[:, dst_expanded]
+124 |             ex = torch.exp(scores_flat - max_g)
+125 | 
+126 |             if self.training and self.p_drop > 0:
+127 |                 drop_mask = (torch.rand_like(ex) > self.p_drop).to(dtype)
+128 |                 ### --- MODIFICATION START: Replaced in-place multiplication --- ###
+129 |                 ex = ex * drop_mask
+130 |                 ### --- MODIFICATION END --- ###
+131 | 
+132 |             V_flat = V_s_window.reshape(self.heads, -1, self.d_head)
+133 |             
+134 |             numer_flat = ex.unsqueeze(-1) * V_flat
+135 |             numer = torch.zeros((self.heads, N, self.d_head), device=device, dtype=dtype)
+136 |             for h in range(self.heads):
+137 |                 for c in range(self.d_head):
+138 |                     numer[h, :, c].index_add_(0, dst_expanded, numer_flat[h, :, c])
+139 | 
+140 |             denom = torch.zeros((self.heads, N), device=device, dtype=dtype)
+141 |             for h in range(self.heads):
+142 |                 denom[h].index_add_(0, dst_expanded, ex[h])
+143 |             
+144 |             denom = torch.clamp(denom, min=1e-12).unsqueeze(-1)
+145 |             msg_h = numer / denom
+146 |             M_out[t] = msg_h.permute(1, 0, 2).reshape(N, self.d)
+147 | 
+148 |         return M_out
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\__init__.py
