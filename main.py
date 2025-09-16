@@ -197,6 +197,8 @@ parser.add_argument('--batch_size', type=int, default=1024,
                     help='Batch size for training. (default: 1024)')
 parser.add_argument('--lr', type=float, default=5e-3,
                     help='Learning rate for training. (default: 5e-3)')
+parser.add_argument('--wd', type=float, default=1e-4,
+                    help='weight decay for training. (default: 1e-4)')
 parser.add_argument('--train_size', type=float, default=0.4,
                     help='Ratio of nodes for training. (default: 0.4)')
 parser.add_argument('--alpha', type=float, default=1.0,
@@ -276,7 +278,7 @@ if args.model == 'spiketdanet':
         total_loss = 0
         total_spike_rate = 0  # <--- 新增：用于累加脉冲率
         num_batches = 0       # <--- 新增：用于计算平均值
-        num_neighbors_to_sample = 10
+        num_neighbors_to_sample = 25
         for nodes in tqdm(train_loader, desc='Training'):
             nodes = nodes.to(device)
             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors_to_sample)
@@ -356,12 +358,14 @@ if args.model == 'spiketdanet':
         W=args.W,
         out_dim=data.num_classes,
         readout=args.readout,
-        lif_tau_theta=0.95,
-        lif_gamma=0.20,
-        lif_beta=1.0,
+        # 传递新的LIF超参数
+        lif_tau=0.95,             # 膜电位衰减因子
+        lif_v_threshold=1.0,      # 脉冲阈值
+        lif_alpha=1.0,            # 替代梯度平滑度
+        lif_surrogate=args.surrogate # 从命令行参数获取替代函数类型
     ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     loss_fn = nn.CrossEntropyLoss()
 
 

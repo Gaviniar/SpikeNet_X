@@ -1,4 +1,3 @@
-
 # spikenet_x/model.py
 from __future__ import annotations
 from typing import Dict, List, Optional
@@ -11,6 +10,7 @@ class SpikeTDANet(nn.Module):
     Spike-TDANet: A Spiking Temporal Delay Attention Network.
     This model stacks SpikeTDANetLayer blocks.
     """
+    # [MODIFIED] 更新__init__以传递LIF参数
     def __init__(
         self,
         d_in: int,
@@ -20,6 +20,11 @@ class SpikeTDANet(nn.Module):
         W: int = 32,
         out_dim: Optional[int] = None,
         readout: str = "mean",
+        # LIF Hyperparameters
+        lif_tau: float = 0.95,
+        lif_v_threshold: float = 1.0,
+        lif_alpha: float = 1.0,
+        lif_surrogate: str = 'sigmoid',
         **kwargs
     ) -> None:
         super().__init__()
@@ -30,12 +35,16 @@ class SpikeTDANet(nn.Module):
         self.d_in = d_in
         self.d = d
         
-        # 输入投影层，确保维度统一为 d
         self.input_proj = nn.Linear(d_in, d)
         
         self.layers = nn.ModuleList()
         for _ in range(layers):
-            self.layers.append(SpikeTDANetLayer(channels=d, heads=heads, W=W, **kwargs))
+            self.layers.append(SpikeTDANetLayer(
+                channels=d, heads=heads, W=W, 
+                lif_tau=lif_tau, lif_v_threshold=lif_v_threshold,
+                lif_alpha=lif_alpha, lif_surrogate=lif_surrogate,
+                **kwargs
+            ))
 
         self.head = nn.Linear(d, out_dim) if out_dim is not None else None
 
@@ -44,24 +53,22 @@ class SpikeTDANet(nn.Module):
         H: torch.Tensor,
         edge_index: torch.Tensor,
         time_idx: torch.Tensor,
-        S0: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         
-        # 初始特征投影
         features = self.input_proj(H)
-        spikes = S0
+        spikes = None  # 第一层没有前序脉冲
         
         spike_list = []
 
         for layer in self.layers:
+            # [MODIFIED] spikes的形状在层间传递时是[T, N]
             features, spikes = layer(features, spikes, edge_index, time_idx)
             spike_list.append(spikes)
 
-        # 读出
         if self.readout == "last":
-            z = features[-1]  # [N, d]
-        else:  # "mean"
-            z = features.mean(dim=0)  # [N, d]
+            z = features[-1]
+        else:
+            z = features.mean(dim=0)
 
         logits = self.head(z) if self.head is not None else None
 
