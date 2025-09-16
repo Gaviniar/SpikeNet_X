@@ -1,4 +1,5 @@
 # Table of Contents
+
 - F:\SomeProjects\CSGNN\.gitignore
 - F:\SomeProjects\CSGNN\generate_feature.py
 - F:\SomeProjects\CSGNN\LICENSE
@@ -31,7 +32,7 @@
 
 ## File: F:\SomeProjects\CSGNN\.gitignore
 
-- Extension: 
+- Extension:
 - Language: unknown
 - Size: 1281 bytes
 - Created: 2025-08-21 17:29:04
@@ -202,7 +203,7 @@
 
 ## File: F:\SomeProjects\CSGNN\LICENSE
 
-- Extension: 
+- Extension:
 - Language: unknown
 - Size: 1112 bytes
 - Created: 2025-08-21 17:29:04
@@ -240,7 +241,7 @@
 - Language: python
 - Size: 21049 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-16 22:21:02
+- Modified: 2025-09-16 22:21:03
 
 ### Code
 
@@ -278,7 +279,7 @@
  31 |     node_mask = torch.isin(row, nodes)
  32 |     edge_index_subset = edge_index_full[:, node_mask]
  33 |     neighbors_all = torch.unique(edge_index_subset[1])
- 34 |     
+ 34 |   
  35 |     # 2) 如果需要，对邻居进行采样
  36 |     if num_neighbors > 0 and neighbors_all.numel() > 0:
  37 |         # 为了简化，我们进行全局采样。更复杂的实现可以做到per-node采样。
@@ -294,7 +295,7 @@
  47 | 
  48 |     # 3) 构建子图节点集并获取重标签后的边
  49 |     subgraph_nodes = torch.unique(torch.cat([nodes, neighbors]))
- 50 |     
+ 50 |   
  51 |     # 使用PyG的subgraph函数，它会返回重标签后的边索引
  52 |     # relabel_nodes=True 是关键
  53 |     subgraph_edge_index, _ = subgraph(
@@ -309,7 +310,7 @@
  62 |     # torch.searchsorted 是一个高效的方法
  63 |     subgraph_nodes_sorted, _ = torch.sort(subgraph_nodes)
  64 |     nodes_local_index = torch.searchsorted(subgraph_nodes_sorted, nodes)
- 65 |     
+ 65 |   
  66 |     return subgraph_nodes_sorted, subgraph_edge_index, nodes_local_index
  67 | 
  68 | 
@@ -553,7 +554,7 @@
 306 |             total_loss += loss.item()
 307 |             total_spike_rate += spike_rate.item() # <--- 新增：累加当前batch的脉冲率
 308 |             num_batches += 1                      # <--- 新增：批次计数
-309 |             
+309 |           
 310 |         avg_loss = total_loss / len(train_loader)
 311 |         avg_spike_rate = total_spike_rate / num_batches 
 312 |         return avg_loss, avg_spike_rate 
@@ -654,7 +655,7 @@
 407 |         # ========== [修改开始] ==========
 408 |         train_loss, train_spike_rate = train_model() # 接收返回的脉冲率
 409 |         # ========== [修改结束] ==========
-410 |         
+410 |       
 411 |         val_metric = test_model(val_loader)
 412 |         test_metric = test_model(test_loader)
 413 | 
@@ -885,7 +886,7 @@
 143 | elif args.dataset.lower() == "flickr":
 144 |     dataset = Flickr(osp.join(root, 'Flickr'))
 145 |     data = dataset[0]
-146 |     
+146 |   
 147 | data.x = torch.nn.functional.normalize(data.x, dim=1)
 148 | 
 149 | set_seed(args.seed)
@@ -1837,7 +1838,7 @@
  35 |     std::vector<int64_t> n_ids;
  36 | 
  37 |     int64_t i;
- 38 |     
+ 38 |   
  39 | 
  40 |     int64_t n, c, e, row_start, row_end, row_count;
  41 | 
@@ -1888,14 +1889,14 @@
  86 |                 }
  87 |             }
  88 | 
- 89 |             
+ 89 |           
  90 |             for (const int64_t &p : perm)
  91 |             {
  92 |                 e = row_start + p;
  93 |                 c = col_data[e];
  94 |                 n_ids.push_back(c);
  95 |             }
- 96 |             
+ 96 |           
  97 |         }
  98 |         // for (int64_t i = 0; i < idx.numel(); i++)
  99 |         // {
@@ -1997,12 +1998,12 @@
 17 | 
 18 | def tab_printer(args):
 19 |     """Function to print the logs in a nice tabular format.
-20 |     
+20 |   
 21 |     Note
 22 |     ----
 23 |     Package `Texttable` is required.
 24 |     Run `pip install Texttable` if was not installed.
-25 |     
+25 |   
 26 |     Parameters
 27 |     ----------
 28 |     args: Parameters used for the model.
@@ -2013,7 +2014,7 @@
 33 |     t.add_rows([["Parameter", "Value"]] +  [[k.replace("_"," "), args[k]] for k in keys])
 34 |     print(t.draw())
 35 | 
-36 |     
+36 |   
 37 | class Sampler:
 38 |     def __init__(self, adj_matrix: sp.csr_matrix):
 39 |         self.rowptr = torch.LongTensor(adj_matrix.indptr)
@@ -2022,8 +2023,8 @@
 42 |     def __call__(self, nodes, size, replace=True):
 43 |         nbr = sample_neighber_cpu(self.rowptr, self.col, nodes, size, replace)
 44 |         return nbr
-45 |     
-46 |     
+45 |   
+46 |   
 47 | class RandomWalkSampler:
 48 |     def __init__(self, adj_matrix: sp.csr_matrix, p: float = 1.0, q: float = 1.0):
 49 |         self.rowptr = torch.LongTensor(adj_matrix.indptr)
@@ -2291,10 +2292,10 @@
 51 |             # 计算新的膜电位
 52 |             # v_new = v_old * beta (泄漏) + I_in (积分) - s_old * gamma (重置)
 53 |             v = self.beta * v + I_in[t] - self.gamma * s
-54 |             
+54 |           
 55 |             # 检查是否超过阈值，产生脉冲
 56 |             s = (v > self.tau_theta).float()
-57 |             
+57 |           
 58 |             # 脉冲发放后，重置膜电位 (硬重置)
 59 |             v = v * (1.0 - s)
 60 | 
@@ -2305,7 +2306,7 @@
 65 |         # 将列表堆叠成张量
 66 |         v_mem_out = torch.stack(v_mem_list, dim=0)
 67 |         spikes_out = torch.stack(spike_list, dim=0)
-68 |         
+68 |       
 69 |         return spikes_out, v_mem_out, spikes_out
 ```
 
@@ -2524,7 +2525,7 @@
 32 | 
 33 | def main():
 34 |     print("--- SpikeNet-X Minimal Example & Shape Check ---")
-35 |     
+35 |   
 36 |     T, N, d_in, d, Hs, L = 16, 64, 32, 64, 4, 2
 37 |     E = N * 5
 38 | 
@@ -2620,9 +2621,9 @@
 34 |         self.readout = readout
 35 |         self.d_in = d_in
 36 |         self.d = d
-37 |         
+37 |       
 38 |         self.input_proj = nn.Linear(d_in, d)
-39 |         
+39 |       
 40 |         self.layers = nn.ModuleList()
 41 |         for _ in range(layers):
 42 |             self.layers.append(SpikeTDANetLayer(
@@ -2640,10 +2641,10 @@
 54 |         edge_index: torch.Tensor,
 55 |         time_idx: torch.Tensor,
 56 |     ) -> Dict[str, torch.Tensor]:
-57 |         
+57 |       
 58 |         features = self.input_proj(H)
 59 |         spikes = None  # 第一层没有前序脉冲
-60 |         
+60 |       
 61 |         spike_list = []
 62 | 
 63 |         for layer in self.layers:
@@ -3090,7 +3091,7 @@
 27 |                  lif_tau=0.95, lif_v_threshold=1.0, lif_alpha=1.0, lif_surrogate='sigmoid', **kwargs):
 28 |         super().__init__()
 29 |         self.channels = channels
-30 |         
+30 |       
 31 |         # 1. 空间GNN预处理
 32 |         self.spatial_gnn = SpatialGNNWrapper(channels, channels)
 33 |         self.norm1 = nn.LayerNorm(channels)
@@ -3101,7 +3102,7 @@
 38 | 
 39 |         # 3. 时空信息聚合
 40 |         self.aggregator = STAGNNAggregator(d_in=channels, d=channels, heads=heads, W=W, **kwargs)
-41 |         
+41 |       
 42 |         # 4. 脉冲发放 (使用新的LIF单元)
 43 |         # [REMOVED] self.msg_proj = nn.Linear(channels, 1) # 移除信息瓶颈
 44 |         self.lif_cell = SurrogateLIFCell(
@@ -3111,21 +3112,21 @@
 48 |             alpha=lif_alpha,
 49 |             surrogate=lif_surrogate
 50 |         )
-51 |         
+51 |       
 52 |         # 5. FFN 和最终输出处理
 53 |         self.ffn = MLP(channels)
 54 |         self.final_norm = nn.LayerNorm(channels)
 55 | 
 56 |     def forward(self, x: torch.Tensor, spikes: Optional[torch.Tensor], edge_index: torch.Tensor, time_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 57 |         T, N, C = x.shape
-58 |         
+58 |       
 59 |         # --- [NEW] START: Handle None spikes for the first layer ---
 60 |         if spikes is None:
 61 |             # For the first layer, assume all-one spikes (no gating)
 62 |             # Shape should be [T, N, C] to match features for the aggregator
 63 |             spikes = torch.ones((T, N, C), device=x.device, dtype=x.dtype)
 64 |         # --- [NEW] END ---
-65 |         
+65 |       
 66 |         # [MODIFIED] 如果上一层脉冲是[T,N]，需要扩展以匹配特征维度
 67 |         # This part is now a fallback, but good to keep.
 68 |         elif spikes.dim() == 2:
@@ -3781,11 +3782,11 @@
  48 |         self.channels = channels
  49 |         self.v_threshold = v_threshold
  50 |         self.v_reset = v_reset
- 51 |         
+ 51 |       
  52 |         # 确保 tau 是一个可训练或固定的缓冲区
  53 |         self.register_buffer("tau", torch.as_tensor(tau, dtype=torch.float32))
  54 |         self.register_buffer("alpha", torch.as_tensor(alpha, dtype=torch.float32))
- 55 |         
+ 55 |       
  56 |         if surrogate not in SURROGATE_MAP:
  57 |             raise ValueError(f"Surrogate function '{surrogate}' is not supported. Available: {list(SURROGATE_MAP.keys())}")
  58 |         self.surrogate_fn = SURROGATE_MAP[surrogate]
@@ -3818,11 +3819,11 @@
  85 |             # 注意：原版Spike的LIF公式是 v = v + (dv - (v-v_reset))/tau
  86 |             # 这里简化为 v = v*tau + I_in，更常见
  87 |             v = v * self.tau + I_in[t]
- 88 |             
+ 88 |           
  89 |             # 2. 发放脉冲 (使用替代梯度)
  90 |             # spike = surrogate(v - v_threshold)
  91 |             spike = self.surrogate_fn(v - self.v_threshold, self.alpha)
- 92 |             
+ 92 |           
  93 |             # 3. 膜电位重置 (reset by subtraction)
  94 |             v = v - spike * self.v_threshold
  95 | 
@@ -3831,7 +3832,7 @@
  98 | 
  99 |         v_mem_out = torch.stack(v_mem_list, dim=0)
 100 |         spikes_out = torch.stack(spike_list, dim=0)
-101 |         
+101 |       
 102 |         return spikes_out, v_mem_out
 103 | 
 ```
@@ -3896,10 +3897,10 @@
 12 |         super().__init__()
 13 |         self.channels = channels
 14 |         self.kernel_size = kernel_size
-15 |         
+15 |       
 16 |         # 因果填充，只在左侧（过去）填充
 17 |         self.padding = kernel_size - 1
-18 |         
+18 |       
 19 |         self.depthwise_conv = nn.Conv1d(
 20 |             in_channels=channels, 
 21 |             out_channels=channels, 
@@ -3924,15 +3925,15 @@
 40 |         """
 41 |         # [T, N, d] -> [N, d, T]
 42 |         x_permuted = x.permute(1, 2, 0)
-43 |         
+43 |       
 44 |         out = self.depthwise_conv(x_permuted)
 45 |         out = self.pointwise_conv(out)
-46 |         
+46 |       
 47 |         # 切片以保持输出长度为T，实现因果性
 48 |         out = out[:, :, :x_permuted.size(2)]
-49 |         
+49 |       
 50 |         out = self.activation(out)
-51 |         
+51 |       
 52 |         # [N, d, T] -> [T, N, d]
 53 |         return out.permute(2, 0, 1)
 ```
@@ -4053,7 +4054,7 @@
  52 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
  53 |         self.d_in, self.d, self.heads, self.d_head, self.W = d_in, d, heads, d // heads, W
  54 |         self.use_rel_bias, self.temp, self.p_drop = use_rel_bias, temp, attn_drop
- 55 |         
+ 55 |       
  56 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
  57 |         d_pe = self.rel_enc.d_pe
  58 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
@@ -4084,39 +4085,39 @@
  83 |             rel_bias = torch.zeros_like(rel_bias)
  84 | 
  85 |         Q_all = self.W_q(H_tilde).view(T, N, self.heads, self.d_head).permute(0, 2, 1, 3)
- 86 |         
+ 86 |       
  87 |         M_out = torch.zeros((T, N, self.d), device=device, dtype=dtype)
  88 |         eps_gate = 1.0e-6
  89 | 
  90 |         for t in range(T):
  91 |             if E == 0: continue
- 92 |             
+ 92 |           
  93 |             W_eff = min(self.W, t)
  94 |             dt_range = torch.arange(W_eff + 1, device=device)
  95 |             t_prime_range = t - dt_range
  96 | 
  97 |             Q_d_t = Q_all[t, :, dst, :]
- 98 |             
+ 98 |           
  99 |             H_src_window = H_tilde[t_prime_range][:, src, :]
 100 |             pe_window = pe_table[:W_eff+1].unsqueeze(1).expand(-1, E, -1)
-101 |             
+101 |           
 102 |             K_in_flat = torch.cat([H_src_window, pe_window], dim=-1).view(-1, self.d_in + self.rel_enc.d_pe)
 103 |             K_s_window = self.W_k(K_in_flat).view(W_eff + 1, E, self.heads, self.d_head).permute(2, 0, 1, 3)
-104 |             
+104 |           
 105 |             V_s_window = self.W_v(H_src_window).view(W_eff + 1, E, self.heads, self.d_head).permute(2, 0, 1, 3)
 106 | 
 107 |             gate_log_window = torch.log(S[t_prime_range][:, src] + eps_gate)
 108 |             rel_bias_window = rel_bias[:W_eff+1]
 109 | 
 110 |             scores = torch.einsum('hed,hwed->hwe', Q_d_t, K_s_window) * self.scale
-111 |             
+111 |           
 112 |             ### --- MODIFICATION START: Replaced in-place additions --- ###
 113 |             scores = scores + rel_bias_window.view(1, -1, 1)
 114 |             scores = scores + gate_log_window.view(1, -1, E)
 115 |             ### --- MODIFICATION END --- ###
-116 |             
+116 |           
 117 |             if self.temp != 1.0: scores /= self.temp
-118 |             
+118 |           
 119 |             scores_flat = scores.reshape(self.heads, -1)
 120 |             dst_expanded = dst.repeat(W_eff + 1)
 121 | 
@@ -4131,7 +4132,7 @@
 130 |                 ### --- MODIFICATION END --- ###
 131 | 
 132 |             V_flat = V_s_window.reshape(self.heads, -1, self.d_head)
-133 |             
+133 |           
 134 |             numer_flat = ex.unsqueeze(-1) * V_flat
 135 |             numer = torch.zeros((self.heads, N, self.d_head), device=device, dtype=dtype)
 136 |             for h in range(self.heads):
@@ -4141,7 +4142,7 @@
 140 |             denom = torch.zeros((self.heads, N), device=device, dtype=dtype)
 141 |             for h in range(self.heads):
 142 |                 denom[h].index_add_(0, dst_expanded, ex[h])
-143 |             
+143 |           
 144 |             denom = torch.clamp(denom, min=1e-12).unsqueeze(-1)
 145 |             msg_h = numer / denom
 146 |             M_out[t] = msg_h.permute(1, 0, 2).reshape(N, self.d)
@@ -4195,7 +4196,7 @@
  33 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
  34 |         self.d_in, self.d, self.heads, self.d_head, self.W = d_in, d, heads, d // heads, W
  35 |         self.use_rel_bias, self.temp, self.p_drop = use_rel_bias, temp, attn_drop
- 36 |         
+ 36 |       
  37 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
  38 |         d_pe = self.rel_enc.d_pe
  39 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
@@ -4230,19 +4231,19 @@
  68 |         # --- Vectorized Index Generation ---
  69 |         t_coords = torch.arange(T, device=device).view(-1, 1)
  70 |         dt_coords = torch.arange(self.W + 1, device=device).view(1, -1)
- 71 |         
+ 71 |       
  72 |         t_prime_matrix = t_coords - dt_coords
  73 |         valid_mask = t_prime_matrix >= 0
- 74 |         
+ 74 |       
  75 |         t_indices, dt_indices = valid_mask.nonzero(as_tuple=True)
  76 |         t_prime_indices = t_prime_matrix[t_indices, dt_indices]
- 77 |         
+ 77 |       
  78 |         num_interactions = len(t_indices)
- 79 |         
+ 79 |       
  80 |         t_indices_exp = t_indices.repeat_interleave(E)
  81 |         dt_indices_exp = dt_indices.repeat_interleave(E)
  82 |         t_prime_indices_exp = t_prime_indices.repeat_interleave(E)
- 83 |         
+ 83 |       
  84 |         src_exp = src.repeat(num_interactions)
  85 |         dst_exp = dst.repeat(num_interactions)
  86 | 
@@ -4251,7 +4252,7 @@
  89 |         V = self.W_v(H_tilde).view(T, N, self.heads, self.d_head)
  90 | 
  91 |         Q_gathered = Q[t_indices_exp, dst_exp]
- 92 |         
+ 92 |       
  93 |         H_k_gathered = H_tilde[t_prime_indices_exp, src_exp]
  94 |         pe_gathered = pe_table[dt_indices_exp]
  95 |         K_in = torch.cat([H_k_gathered, pe_gathered], dim=-1)
@@ -4260,41 +4261,41 @@
  98 |         V_gathered = V[t_prime_indices_exp, src_exp]
  99 | 
 100 |         scores = torch.einsum('ehd,ehd->eh', Q_gathered, K_gathered) * self.scale
-101 |         
+101 |       
 102 |         # 使用非原地操作 (out-of-place)
 103 |         scores = scores + rel_bias[dt_indices_exp].unsqueeze(-1)
-104 |         
+104 |       
 105 |         eps_gate = 1e-6
 106 |         spike_gate = S[t_prime_indices_exp, src_exp]
-107 |         
+107 |       
 108 |         spike_gate_per_head = spike_gate.view(-1, self.heads, self.d_head)
 109 |         scalar_gate_per_head = spike_gate_per_head.mean(dim=-1)
 110 |         scores = scores + torch.log(scalar_gate_per_head + eps_gate)
-111 |         
+111 |       
 112 |         if self.temp != 1.0:
 113 |             scores = scores / self.temp
-114 |             
+114 |           
 115 |         # 5. Numerically stable softmax (segment-wise)
 116 |         segment_ids = t_indices_exp * N + dst_exp
 117 |         num_segments = T * N
-118 |         
+118 |       
 119 |         max_scores = torch.full((num_segments, self.heads), -1e30, device=device, dtype=dtype)
 120 |         max_scores.scatter_reduce_(0, segment_ids.unsqueeze(-1).expand_as(scores), scores, reduce="amax", include_self=False)
 121 | 
 122 |         scores_normalized = torch.exp(scores - max_scores[segment_ids])
-123 |         
+123 |       
 124 |         if self.training and self.p_drop > 0:
 125 | 
 126 |             scores_normalized = scores_normalized * (torch.rand_like(scores_normalized) > self.p_drop)
 127 | 
 128 |         denom = _segment_sum(scores_normalized, segment_ids, num_segments)
-129 |         
+129 |       
 130 |         numer_contrib = scores_normalized.unsqueeze(-1) * V_gathered
 131 |         numer = _segment_sum(numer_contrib, segment_ids, num_segments)
-132 |         
+132 |       
 133 |         M_flat = numer / torch.clamp(denom, min=1e-12).unsqueeze(-1)
 134 |         M_out = M_flat.reshape(T, N, self.d)
-135 |         
+135 |       
 136 |         return M_out
 ```
 
@@ -4322,4 +4323,3 @@
 11 |     "STAGNNAggregator_Optimized", 
 12 | ]
 ```
-
