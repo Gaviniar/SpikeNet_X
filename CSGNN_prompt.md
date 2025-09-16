@@ -4153,9 +4153,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 6073 bytes
+- Size: 5589 bytes
 - Created: 2025-09-16 22:11:43
-- Modified: 2025-09-16 22:11:47
+- Modified: 2025-09-16 22:33:10
 
 ### Code
 
@@ -4167,141 +4167,135 @@
   5 | import torch.nn as nn
   6 | from ..rel_time import RelativeTimeEncoding
   7 | 
-  8 | # Helper function (can be shared or copied)
+  8 | # Helper function to handle vectorized scatter_add for multi-dimensional tensors
   9 | def _segment_sum(data: torch.Tensor, segment_ids: torch.Tensor, num_segments: int) -> torch.Tensor:
- 10 |     """Vectorized segment sum using scatter_add."""
+ 10 |     """Vectorized segment sum using scatter_add_."""
  11 |     result_shape = (num_segments,) + data.shape[1:]
  12 |     result = torch.zeros(result_shape, dtype=data.dtype, device=data.device)
- 13 |     segment_ids = segment_ids.unsqueeze(-1).expand_as(data)
- 14 |     result.scatter_add_(0, segment_ids, data)
- 15 |     return result
- 16 | 
- 17 | class STAGNNAggregator_Optimized(nn.Module):
- 18 |     def __init__(
- 19 |         self,
- 20 |         d_in: int,
- 21 |         d: int,
- 22 |         heads: int = 4,
- 23 |         W: int = 32,
- 24 |         use_rel_bias: bool = True,
- 25 |         attn_drop: float = 0.1,
- 26 |         temp: float = 1.0,
- 27 |         pe_taus: Tuple[float, float] = (4.0, 16.0),
- 28 |         pe_n_freq: int = 3,
- 29 |     ) -> None:
- 30 |         super().__init__()
- 31 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
- 32 |         self.d_in, self.d, self.heads, self.d_head, self.W = d_in, d, heads, d // heads, W
- 33 |         self.use_rel_bias, self.temp, self.p_drop = use_rel_bias, temp, attn_drop
- 34 |         
- 35 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
- 36 |         d_pe = self.rel_enc.d_pe
- 37 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
- 38 |         self.W_k = nn.Linear(d_in + d_pe, self.d, bias=False)
- 39 |         self.W_v = nn.Linear(d_in, self.d, bias=False)
- 40 |         self.scale = self.d_head ** -0.5
- 41 |         self.reset_parameters()
- 42 | 
- 43 |     def reset_parameters(self) -> None:
- 44 |         nn.init.xavier_uniform_(self.W_q.weight)
- 45 |         nn.init.xavier_uniform_(self.W_k.weight)
- 46 |         nn.init.xavier_uniform_(self.W_v.weight)
- 47 | 
- 48 |     def forward(
- 49 |         self,
- 50 |         H_tilde: torch.Tensor,
- 51 |         S: torch.Tensor,
- 52 |         edge_index: torch.Tensor,
- 53 |         time_idx: torch.Tensor,
- 54 |     ) -> torch.Tensor:
- 55 |         T, N, _ = H_tilde.shape
- 56 |         device, dtype = H_tilde.device, H_tilde.dtype
- 57 |         src, dst = edge_index[0].to(device), edge_index[1].to(device)
- 58 |         E = src.numel()
- 59 |         if E == 0:
- 60 |             return torch.zeros((T, N, self.d), device=device, dtype=dtype)
- 61 | 
- 62 |         pe_table, rel_bias = self.rel_enc(time_idx, W=self.W)
- 63 |         if not self.use_rel_bias:
- 64 |             rel_bias = torch.zeros_like(rel_bias)
- 65 | 
- 66 |         # --- Vectorized Index Generation ---
- 67 |         # 1. Create all (t, dt) pairs and filter for valid t' = t - dt >= 0
- 68 |         t_coords = torch.arange(T, device=device).view(-1, 1)
- 69 |         dt_coords = torch.arange(self.W + 1, device=device).view(1, -1)
- 70 |         
- 71 |         t_prime_matrix = t_coords - dt_coords  # Shape: [T, W+1]
- 72 |         valid_mask = t_prime_matrix >= 0
- 73 |         
- 74 |         # Get indices of valid (t, dt) pairs
+ 13 |     # expand segment_ids to match data's dimensions for scatter_add_
+ 14 |     view_shape = (segment_ids.shape[0],) + (1,) * (data.dim() - 1)
+ 15 |     segment_ids = segment_ids.view(view_shape).expand_as(data)
+ 16 |     result.scatter_add_(0, segment_ids, data)
+ 17 |     return result
+ 18 | 
+ 19 | class STAGNNAggregator_Optimized(nn.Module):
+ 20 |     def __init__(
+ 21 |         self,
+ 22 |         d_in: int,
+ 23 |         d: int,
+ 24 |         heads: int = 4,
+ 25 |         W: int = 32,
+ 26 |         use_rel_bias: bool = True,
+ 27 |         attn_drop: float = 0.1,
+ 28 |         temp: float = 1.0,
+ 29 |         pe_taus: Tuple[float, float] = (4.0, 16.0),
+ 30 |         pe_n_freq: int = 3,
+ 31 |     ) -> None:
+ 32 |         super().__init__()
+ 33 |         assert heads >= 1 and d % heads == 0, "heads*d_head 必须等于 d"
+ 34 |         self.d_in, self.d, self.heads, self.d_head, self.W = d_in, d, heads, d // heads, W
+ 35 |         self.use_rel_bias, self.temp, self.p_drop = use_rel_bias, temp, attn_drop
+ 36 |         
+ 37 |         self.rel_enc = RelativeTimeEncoding(taus=pe_taus, n_freq=pe_n_freq)
+ 38 |         d_pe = self.rel_enc.d_pe
+ 39 |         self.W_q = nn.Linear(d_in, self.d, bias=False)
+ 40 |         self.W_k = nn.Linear(d_in + d_pe, self.d, bias=False)
+ 41 |         self.W_v = nn.Linear(d_in, self.d, bias=False)
+ 42 |         self.scale = self.d_head ** -0.5
+ 43 |         self.reset_parameters()
+ 44 | 
+ 45 |     def reset_parameters(self) -> None:
+ 46 |         nn.init.xavier_uniform_(self.W_q.weight)
+ 47 |         nn.init.xavier_uniform_(self.W_k.weight)
+ 48 |         nn.init.xavier_uniform_(self.W_v.weight)
+ 49 | 
+ 50 |     def forward(
+ 51 |         self,
+ 52 |         H_tilde: torch.Tensor,
+ 53 |         S: torch.Tensor,
+ 54 |         edge_index: torch.Tensor,
+ 55 |         time_idx: torch.Tensor,
+ 56 |     ) -> torch.Tensor:
+ 57 |         T, N, _ = H_tilde.shape
+ 58 |         device, dtype = H_tilde.device, H_tilde.dtype
+ 59 |         src, dst = edge_index[0].to(device), edge_index[1].to(device)
+ 60 |         E = src.numel()
+ 61 |         if E == 0:
+ 62 |             return torch.zeros((T, N, self.d), device=device, dtype=dtype)
+ 63 | 
+ 64 |         pe_table, rel_bias = self.rel_enc(time_idx, W=self.W)
+ 65 |         if not self.use_rel_bias:
+ 66 |             rel_bias = torch.zeros_like(rel_bias)
+ 67 | 
+ 68 |         # --- Vectorized Index Generation ---
+ 69 |         t_coords = torch.arange(T, device=device).view(-1, 1)
+ 70 |         dt_coords = torch.arange(self.W + 1, device=device).view(1, -1)
+ 71 |         
+ 72 |         t_prime_matrix = t_coords - dt_coords
+ 73 |         valid_mask = t_prime_matrix >= 0
+ 74 |         
  75 |         t_indices, dt_indices = valid_mask.nonzero(as_tuple=True)
  76 |         t_prime_indices = t_prime_matrix[t_indices, dt_indices]
  77 |         
  78 |         num_interactions = len(t_indices)
  79 |         
- 80 |         # 2. Expand spatial edges for each valid temporal interaction
- 81 |         # Total attention edges = num_interactions * E
- 82 |         t_indices_exp = t_indices.repeat_interleave(E)
- 83 |         dt_indices_exp = dt_indices.repeat_interleave(E)
- 84 |         t_prime_indices_exp = t_prime_indices.repeat_interleave(E)
- 85 |         
- 86 |         src_exp = src.repeat(num_interactions)
- 87 |         dst_exp = dst.repeat(num_interactions)
- 88 | 
- 89 |         # --- Vectorized Attention Calculation ---
- 90 |         # 3. Gather Q, K, V features
- 91 |         Q = self.W_q(H_tilde).view(T, N, self.heads, self.d_head)
- 92 |         V = self.W_v(H_tilde).view(T, N, self.heads, self.d_head)
- 93 | 
- 94 |         Q_gathered = Q[t_indices_exp, dst_exp] # [num_total_edges, H, d_h]
- 95 |         
- 96 |         H_k_gathered = H_tilde[t_prime_indices_exp, src_exp] # [num_total_edges, d_in]
- 97 |         pe_gathered = pe_table[dt_indices_exp] # [num_total_edges, d_pe]
- 98 |         K_in = torch.cat([H_k_gathered, pe_gathered], dim=-1)
- 99 |         K_gathered = self.W_k(K_in).view(-1, self.heads, self.d_head) # [num_total_edges, H, d_h]
-100 | 
-101 |         V_gathered = V[t_prime_indices_exp, src_exp] # [num_total_edges, H, d_h]
-102 | 
-103 |         # 4. Calculate scores
-104 |         scores = torch.einsum('ehd,ehd->eh', Q_gathered, K_gathered) * self.scale # [num_total_edges, H]
-105 |         
-106 |         # Add temporal bias and spike gate
-107 |         scores += rel_bias[dt_indices_exp].unsqueeze(-1)
-108 |         
-109 |         eps_gate = 1e-6
-110 |         spike_gate = S[t_prime_indices_exp, src_exp]
-111 |         scores += torch.log(spike_gate + eps_gate).unsqueeze(-1)
-112 |         
-113 |         if self.temp != 1.0:
-114 |             scores /= self.temp
-115 |             
-116 |         # 5. Numerically stable softmax (segment-wise)
-117 |         # Unique ID for each destination node at each time step `t`
-118 |         segment_ids = t_indices_exp * N + dst_exp # [num_total_edges]
-119 |         num_segments = T * N
-120 |         
-121 |         # Pass 1: find max score per segment
-122 |         max_scores = torch.full((num_segments, self.heads), -1e30, device=device, dtype=dtype)
-123 |         max_scores.scatter_reduce_(0, segment_ids.unsqueeze(-1).expand_as(scores), scores, reduce="amax", include_self=False)
-124 | 
-125 |         # Pass 2: calculate probs and aggregate
-126 |         scores_normalized = torch.exp(scores - max_scores[segment_ids])
-127 |         
-128 |         if self.training and self.p_drop > 0:
-129 |             scores_normalized *= (torch.rand_like(scores_normalized) > self.p_drop)
-130 | 
-131 |         # Aggregate denominator
-132 |         denom = _segment_sum(scores_normalized, segment_ids, num_segments) # [T*N, H]
-133 |         
-134 |         # Aggregate numerator (weighted values)
-135 |         numer_contrib = scores_normalized.unsqueeze(-1) * V_gathered # [num_total_edges, H, d_h]
-136 |         numer = _segment_sum(numer_contrib, segment_ids, num_segments) # [T*N, H, d_h]
-137 |         
-138 |         # Final message
-139 |         M_flat = numer / torch.clamp(denom, min=1e-12).unsqueeze(-1) # [T*N, H, d_h]
-140 |         M_out = M_flat.reshape(T, N, self.d)
-141 |         
-142 |         return M_out
+ 80 |         t_indices_exp = t_indices.repeat_interleave(E)
+ 81 |         dt_indices_exp = dt_indices.repeat_interleave(E)
+ 82 |         t_prime_indices_exp = t_prime_indices.repeat_interleave(E)
+ 83 |         
+ 84 |         src_exp = src.repeat(num_interactions)
+ 85 |         dst_exp = dst.repeat(num_interactions)
+ 86 | 
+ 87 |         # --- Vectorized Attention Calculation ---
+ 88 |         Q = self.W_q(H_tilde).view(T, N, self.heads, self.d_head)
+ 89 |         V = self.W_v(H_tilde).view(T, N, self.heads, self.d_head)
+ 90 | 
+ 91 |         Q_gathered = Q[t_indices_exp, dst_exp]
+ 92 |         
+ 93 |         H_k_gathered = H_tilde[t_prime_indices_exp, src_exp]
+ 94 |         pe_gathered = pe_table[dt_indices_exp]
+ 95 |         K_in = torch.cat([H_k_gathered, pe_gathered], dim=-1)
+ 96 |         K_gathered = self.W_k(K_in).view(-1, self.heads, self.d_head)
+ 97 | 
+ 98 |         V_gathered = V[t_prime_indices_exp, src_exp]
+ 99 | 
+100 |         scores = torch.einsum('ehd,ehd->eh', Q_gathered, K_gathered) * self.scale
+101 |         
+102 |         # 使用非原地操作 (out-of-place)
+103 |         scores = scores + rel_bias[dt_indices_exp].unsqueeze(-1)
+104 |         
+105 |         eps_gate = 1e-6
+106 |         spike_gate = S[t_prime_indices_exp, src_exp]
+107 |         
+108 |         spike_gate_per_head = spike_gate.view(-1, self.heads, self.d_head)
+109 |         scalar_gate_per_head = spike_gate_per_head.mean(dim=-1)
+110 |         scores = scores + torch.log(scalar_gate_per_head + eps_gate)
+111 |         
+112 |         if self.temp != 1.0:
+113 |             scores = scores / self.temp
+114 |             
+115 |         # 5. Numerically stable softmax (segment-wise)
+116 |         segment_ids = t_indices_exp * N + dst_exp
+117 |         num_segments = T * N
+118 |         
+119 |         max_scores = torch.full((num_segments, self.heads), -1e30, device=device, dtype=dtype)
+120 |         max_scores.scatter_reduce_(0, segment_ids.unsqueeze(-1).expand_as(scores), scores, reduce="amax", include_self=False)
+121 | 
+122 |         scores_normalized = torch.exp(scores - max_scores[segment_ids])
+123 |         
+124 |         if self.training and self.p_drop > 0:
+125 | 
+126 |             scores_normalized = scores_normalized * (torch.rand_like(scores_normalized) > self.p_drop)
+127 | 
+128 |         denom = _segment_sum(scores_normalized, segment_ids, num_segments)
+129 |         
+130 |         numer_contrib = scores_normalized.unsqueeze(-1) * V_gathered
+131 |         numer = _segment_sum(numer_contrib, segment_ids, num_segments)
+132 |         
+133 |         M_flat = numer / torch.clamp(denom, min=1e-12).unsqueeze(-1)
+134 |         M_out = M_flat.reshape(T, N, self.d)
+135 |         
+136 |         return M_out
 ```
 
 ## File: F:\SomeProjects\CSGNN\spikenet_x\new_modules\__init__.py
