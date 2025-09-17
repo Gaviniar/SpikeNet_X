@@ -1,309 +1,294 @@
-# Spike-TDANet: 脉冲时序延迟注意力网络
+
+# Spike-TDANet: 面向动态图的脉冲时序延迟注意力网络
+
+**Spike-TDANet** (Spiking Temporal Delay Attention Network) 是一个专为动态图（时序图）设计的深度学习模型。它创新性地结合了图神经网络（GNN）强大的空间特征提取能力和脉冲神经网络（SNN）在处理时序信息上的高效性与生物可解释性。模型通过独特的 **时序延迟注意力机制 (Temporal Delay Attention)** 和 **脉冲门控聚合 (Spike-Gated Aggregation)**，能够高效地捕捉节点在时空维度上的复杂依赖关系，适用于动态图上的节点分类等任务。
+
+![模型结构图](https://user-images.githubusercontent.com/assets/your-image-placeholder.png)
 
 ## 目录
 
-1. [项目概述](#项目概述)
-2. [模型架构与创新点](#模型架构与创新点)
-   * [核心架构哲学：先空间，后时间](#核心架构哲学先空间后时间)
-   * [三大创新组件](#三大创新组件)
-3. [数据处理流程 (单层)](#数据处理流程-单层)
-4. [项目文件结构](#项目文件结构)
-5. [模块详解](#模块详解)
-   * [主程序 (`main.py`)](#主程序-mainpy)
-   * [顶层模型 (`spikenet_x/model.py`)](#顶层模型-spikenet_xmodelpy)
-   * [核心编排层 (`spikenet_x/spiketdanet_layer.py`)](#核心编排层-spikenet_xspiketdanet_layerpy)
-   * [空间GNN预处理器 (`spikenet_x/new_modules/spatial_gnn_wrapper.py`)](#空间gnn预处理器-spikenet_xnew_modulesspatial_gnn_wrapperpy)
-   * [可学习延迟通路 (`spikenet_x/new_modules/delay_line.py`)](#可学习延迟通路-spikenet_xnew_modulesdelay_linepy)
-   * [脉冲时序注意力聚合器 (`spikenet_x/new_modules/sta_gnn_agg.py`)](#脉冲时序注意力聚合器-spikenet_xnew_modulessta_gnn_aggpy)
-   * [LIF神经元 (`spikenet_x/lif_cell.py`)](#lif神经元-spikenet_xlif_cellpy)
-   * [辅助模块](#辅助模块)
-6. [如何运行](#如何运行)
+- [项目亮点](#项目亮点)
+- [模型架构](#模型架构)
+  - [整体流程](#整体流程)
+  - [核心模块详解 (SpikeTDANetLayer)](#核心模块详解-spiketdanetlayer)
+- [代码模块详解](#代码模块详解)
+  - [`SpikeTDANet` (模型主类)](#spiketdanet-模型主类)
+  - [`SpikeTDANetLayer` (核心层)](#spiketdanetlayer-核心层)
+  - [`SpatialGNNWrapper` (空间特征提取)](#spatialgnnwrapper-空间特征提取)
+  - [`DelayLine` (时序延迟建模)](#delayline-时序延迟建模)
+  - [`STAGNNAggregator_Optimized` (时空注意力聚合)](#stagnnaggregator_optimized-时空注意力聚合)
+  - [`SurrogateLIFCell` (脉冲发放单元)](#surrogatelifcell-脉冲发放单元)
+- [如何使用](#如何使用)
+  - [环境配置](#环境配置)
+  - [1. 数据准备 (特征生成)](#1-数据准备-特征生成)
+  - [2. 模型训练](#2-模型训练)
+  - [3. 模型测试](#3-模型测试)
+  - [4. 超参数搜索 (Optuna)](#4-超参数搜索-optuna)
+- [命令行参数详解](#命令行参数详解)
+- [项目文件结构](#项目文件结构)
+- [许可](#许可)
 
----
+## 项目亮点
 
-## 1. 项目概述
+1. **混合式架构**: 结合 GNN 强大的空间建模能力和 SNN 在时序处理上的优势，实现了对动态图时空信息的深度融合。
+2. **时序延迟注意力**: 通过 `DelayLine` 模块和 `STAGNNAggregator` 中的相对时间编码，模型不仅关注“是否连接”，还关注“何时连接”，并对不同时间延迟的邻居信息进行加权聚合。
+3. **脉冲门控机制**: 上一层神经元的脉冲发放（Spike）被用作下一层注意力聚合的门控信号。这种机制模拟了生物神经元的信息筛选过程，使得信息流动更加动态和高效。
+4. **高维脉冲神经元**: 采用 `SurrogateLIFCell` 直接处理高维特征向量，避免了将信息压缩至标量电流时的瓶颈，保留了更丰富的特征信息用于脉冲发放决策。
+5. **高效的稀疏实现**: 核心的 `STAGNNAggregator` 模块基于 `edge_index` 进行稀疏计算，避免了构造稠密的 `(N, N)` 邻接矩阵，使其能够扩展到大规模图上。
 
-**Spike-TDANet (Spiking Temporal Delay Attention Network)** 是一个为处理时序图数据而设计的下一代脉冲图神经网络（SNN-GNN）。该模型旨在通过一个统一、强大且稳定的新架构，解决动态图中复杂的时空依赖性建模问题。
+## 模型架构
 
-本项目的核心目标是将一个基础的脉冲网络 (`SpikeNet-X`) 彻底重构，集成三大先进理念：
+### 整体流程
 
-1. **空间GNN预处理 (Spatial GNN Preprocessing)**：在时序处理前增强节点特征的空间上下文。
-2. **可学习延迟通路 (Learnable DelayLine)**：显式地、高效地为信号传播建模多种时间延迟。
-3. **脉冲时序注意力聚合 (Spiking Temporal Attention Aggregator)**：执行一种事件驱动的、因果的、稀疏化的时空信息聚合。
+Spike-TDANet 的核心思想是逐层处理动态图数据，每一层都完成一次完整的“空间聚合 -> 时间建模 -> 时空融合 -> 脉冲发放”过程。
 
-最终形成一个逻辑清晰、性能卓越且易于训练的端到端模型。
+1. **输入**: 模型接收一个时序图数据，包括：
 
-**Tensor 形状约定**: 在本文档中，时序节点特征张量的形状统一表示为 `[T, N, d]`，其中 `T` 是时间步数，`N` 是节点数，`d` 是特征维度。
+   * **节点特征序列 `H`**: 形状为 `[T, N, d_in]`，`T` 是时间步数，`N` 是节点数，`d_in` 是初始特征维度。
+   * **全局边索引 `edge_index`**: 形状为 `[2, E]`，包含了所有时间步中出现过的边。
+   * **时间戳索引 `time_idx`**: 形状为 `[T]`，通常是 `torch.arange(T)`。
+2. **输入投影**: 初始节点特征 `H` 首先通过一个线性层 (`input_proj`) 投影到模型的隐藏维度 `d`。
+3. **堆叠 `SpikeTDANetLayer`**: 经过投影的特征被送入一个由多个 `SpikeTDANetLayer` 堆叠而成的网络。
 
-## 2. 模型架构与创新点
+   * 每一层接收上一层的 **输出特征 `features`** 和 **脉冲信号 `spikes`** 作为输入。
+   * 第一层没有 `spikes` 输入，因此默认所有节点都在发放脉冲（即不进行门控）。
+   * 每一层都会输出新的特征和脉冲，传递给下一层。
+4. **读出与分类**:
 
-### 核心架构哲学：先空间，后时间
+   * 最后一层输出的节点特征序列 `features` 经过一个读出（Readout）操作（如对时间维度取平均 `mean` 或取最后时刻 `last`），得到每个节点的最终表示 `z`。
+   * 最终表示 `z` 被送入一个分类头 (`head`)，得到预测的 `logits`。
 
-为了最大化模型的稳定性和表达能力，我们将复杂的时空信息处理解耦为两个清晰的阶段：
+### 核心模块详解 (SpikeTDANetLayer)
 
-1. **阶段一：空间特征增强 (由标准GNN负责)**
+`SpikeTDANetLayer` 是模型的核心，其内部处理流程如下：
 
-   * **任务**: 在每个时间点独立地应用图卷积，平滑节点特征并聚合其邻域的静态上下文信息。
-   * **作用**: 为后续的时序模块提供一个高质量、低噪声、信息丰富的输入。这极大地稳定了训练过程，避免了在原始、嘈杂的特征上直接进行复杂的时序建模。
-2. **阶段二：时序动态建模 (由SNN核心模块负责)**
 
-   * **任务**: 在经过空间增强的特征之上，显式地建模时间延迟，执行跨时间的注意力聚合，并以事件驱动的方式产生脉冲。
-   * **作用**: 专注于捕捉图中复杂的时间依赖关系和因果传播模式。
+1. **空间GNN预处理 (`SpatialGNNWrapper`)**:
 
-### 三大创新组件
+   * **功能**: 对每个时间步 `t` 的节点特征 `x[t]` 独立地进行一次图卷积（如 GraphSAGE），聚合来自直接邻居的瞬时空间信息。
+   * **目的**: 捕捉图在当前时刻的静态空间结构。
+   * **实现**: 通过巧妙地重塑张量和扩展 `edge_index`，可以在整个时间序列上进行一次批处理的图卷积，非常高效。
+2. **时序延迟建模 (`DelayLine`)**:
 
-1. **空间GNN预处理 (`SpatialGNNWrapper`)**
+   * **功能**: 对经过空间处理后的特征序列，沿着时间轴对每个节点独立地进行一次因果一维卷积。
+   * **目的**: 建模节点自身特征在短期内的演化模式，即“记忆”效应。
+   * **实现**: 采用深度可分离卷积，计算成本低廉，同时能有效捕捉多种时间延迟。
+3. **时空注意力聚合 (`STAGNNAggregator_Optimized`)**:
 
-   * **创新**: 将GNN作为时序SNN的前置“降噪器”和“特征增强器”。通过一个高效的Wrapper，将 `T`个时间点的图卷积操作并行化为一次大的批处理运算，实现了在不牺牲性能的前提下，为每个时间点注入必要的空间信息。
-2. **可学习延迟通路 (`DelayLine`)**
+   * **功能**: 这是模型的核心。对于每个目标节点 `i` 在 `t` 时刻，它会关注其邻居 `j` 在过去时间窗口 `[t-W, t]` 内的特征。
+   * **注意力权重计算**: 权重不仅取决于 `i` 和 `j` 的特征相似度，还受到以下因素调制：
+     * **相对时间 `t-t'`**: 通过 `RelativeTimeEncoding` 模块，为不同的时间差赋予独特的编码和可学习偏置。
+     * **上一层脉冲 `S[t', j]`**: 邻居 `j` 在 `t'` 时刻的脉冲强度会作为门控信号，调节其信息的重要性。脉冲越强，权重越高。
+   * **目的**: 动态地、有选择地从时空邻域中聚合最相关的信息。
+4. **脉冲发放 (`SurrogateLIFCell`)**:
 
-   * **创新**: 使用**因果深度可分离1D卷积**来替代传统的固定延迟或隐式建模。该模块能以极低的计算成本，为每个特征通道学习一组不同的延迟响应权重，从而动态地捕捉不同类型信息在时间维度上的传播速度差异。
-3. **脉冲时序注意力聚合器 (`STAGNNAggregator`)**
+   * **功能**: 将聚合后的高维时空消息 `aggregated_message` 视为输入电流，注入一个 Leaky Integrate-and-Fire (LIF) 神经元模型。
+   * **LIF 动态**: 神经元的膜电位根据输入电流进行累积，当超过阈值时发放一个脉冲，并重置电位。
+   * **替代梯度**: 由于脉冲发放是不可导的，训练时采用 Sigmoid 或 Triangle 等平滑函数作为其替代梯度，以实现端到端的反向传播。
+   * **输出**:
+     * **高维脉冲 `spikes_hd` (`[T, N, C]`)**: 用于后续的特征门控。
+     * **标量脉冲 `new_spikes` (`[T, N]`)**: 通过对高维脉冲在特征维度上取平均得到，传递给下一层作为门控信号。
+5. **输出处理 (FFN & 残差连接)**:
 
-   * **创新**: 这是模型的核心计算单元，实现了高度稀疏化和事件驱动的注意力机制。
-     * **时空注意力**: Attention机制同时作用于**空间邻居**和**时间窗口**内的历史信息。
-     * **因果与稀疏**: 严格遵守因果性（只关注过去），并且注意力计算被限制在图的边结构上（`O(E)`复杂度），适用于大规模图。
-     * **脉冲门控 (Spike-Gated)**: 注意力分数受到源节点历史脉冲活动的调制。这意味着只有“活跃”（即近期发放过脉冲）的邻居节点才能传递更重要的信息，完美契合SNN的事件驱动特性。
-     * **数值稳定**: 采用两遍(two-pass)的 `segment-softmax`机制，确保在稀疏图上进行softmax时数值的稳定性和准确性。
+   * 聚合后的消息 `aggregated_message` 会被 `spikes_hd` 门控，然后通过一个前馈网络 (FFN/MLP) 进行非线性变换。
+   * 最后，通过残差连接和层归一化 (LayerNorm) 产生该层的最终输出特征。
 
-## 3. 数据处理流程 (单层)
+## 代码模块详解
 
-`SpikeTDANetLayer` 是模型的基本构建块。其单层数据处理流程如下：
+下面是核心代码模块的功能、参数和代码位置的详细说明。
 
-1. **输入**:
+### `SpikeTDANet` (模型主类)
 
-   * `x`: 节点特征 `[T, N, d]`
-   * `spikes`: 上一层或初始脉冲 `[T, N]`
-   * `edge_index`: 图结构 `[2, E]`
-   * `time_idx`: 时间索引 `[T]`
-2. **[空间GNN预处理] `SpatialGNNWrapper`**:
+- **文件**: `spikenet_x/model.py`
+- **功能**: 作为模型的容器，负责搭建和管理多个 `SpikeTDANetLayer`。
+- **`__init__` 参数**:
+  - `d_in` (int): 输入特征维度。
+  - `d` (int): 模型隐藏层维度。
+  - `layers` (int): `SpikeTDANetLayer` 的层数。
+  - `heads` (int): 注意力机制的头数。
+  - `W` (int): 注意力机制的时间窗口大小。
+  - `out_dim` (int): 输出维度（类别数）。
+  - `readout` (str): 读出方式，`'mean'` 或 `'last'`。
+  - `lif_tau` (float): LIF神经元的膜电位衰减因子。
+  - `lif_v_threshold` (float): LIF神经元的脉冲阈值。
+  - `lif_alpha` (float): 替代梯度的平滑度因子。
+  - `lif_surrogate` (str): 替代梯度函数类型，如 `'sigmoid'` 或 `'triangle'`。
 
-   * 对每个时间步的 `x` 应用一次 `SAGEConv`，输出空间聚合后的特征 `x_spatial`。
-   * 应用残差连接和层归一化: `x_norm1 = LayerNorm(x + x_spatial)`。
-3. **[时间延迟建模] `DelayLine`**:
+### `SpikeTDANetLayer` (核心层)
 
-   * 将 `x_norm1` 输入因果深度可分离1D卷积，学习多种延迟响应，输出 `x_delayed`。
-   * 应用残差连接和层归一化: `x_norm2 = LayerNorm(x_norm1 + x_delayed)`。
-4. **[时空信息聚合] `STAGNNAggregator`**:
+- **文件**: `spikenet_x/spiketdanet_layer.py`
+- **功能**: 实现单层的时空信息处理流程。
+- **`__init__` 参数**:
+  - `channels` (int): 层的输入/输出维度（等于模型的 `d`）。
+  - `heads` (int): 注意力头数。
+  - `W` (int): 时间窗口大小。
+  - `delay_kernel` (int): `DelayLine` 的卷积核大小。
+  - `lif_*` 参数: 传递给 `SurrogateLIFCell`。
+- **`forward` 方法**:
+  - **输入**: `x` (特征), `spikes` (上一层脉冲), `edge_index`, `time_idx`。
+  - **输出**: `layer_output_features` (本层输出特征), `new_spikes_for_next_layer` (本层输出脉冲)。
 
-   * 以 `x_norm2` 作为Query, Key, Value的基础，`spikes` 作为门控信号。
-   * 执行因果、稀疏化的时空多头注意力，聚合来自时空邻域的信息。
-   * 输出聚合后的消息 `aggregated_message` `[T, N, d]`。
-5. **[脉冲发放] `LIFCell`**:
+### `SpatialGNNWrapper` (空间特征提取)
 
-   * 将 `aggregated_message` 通过一个线性层 `msg_proj` 投影为标量输入电流 `I` `[T, N]`。
-   * 将电流 `I` 注入LIF神经元，更新膜电位并生成新脉冲。
-   * 输出 `new_spikes` `[T, N]` (用于下一层) 和 `new_v` `[T, N]` (膜电位)。
-6. **[最终输出]**:
+- **文件**: `spikenet_x/new_modules/spatial_gnn_wrapper.py`
+- **功能**: 在每个时间步上应用 SAGEConv。
+- **`__init__` 参数**:
+  - `in_channels`, `out_channels` (int): 输入输出维度。
+  - `aggr` (str): SAGEConv 的聚合方式，如 `'mean'`。
 
-   * 将聚合消息 `aggregated_message` 通过一个前馈网络 (FFN) 进行变换。
-   * 应用一个宏观的残差连接，将FFN的输出与该层的最开始输入 `x` 相加，确保梯度流的通畅。
-   * `output_features = LayerNorm(x + ffn(aggregated_message))`。
-7. **输出**:
+### `DelayLine` (时序延迟建模)
 
-   * `output_features`: `[T, N, d]`，作为下一层的特征输入。
-   * `new_spikes`: `[T, N]`，作为下一层的脉冲门控输入。
+- **文件**: `spikenet_x/new_modules/delay_line.py`
+- **功能**: 使用因果深度可分离1D卷积建模时间延迟。
+- **`__init__` 参数**:
+  - `channels` (int): 特征维度。
+  - `kernel_size` (int): 卷积核大小，决定了建模的延迟范围。
 
-## 4. 项目文件结构
+### `STAGNNAggregator_Optimized` (时空注意力聚合)
+
+- **文件**: `spikenet_x/new_modules/sta_gnn_agg_optimized.py`
+- **功能**: 高效的、基于稀疏边的、脉冲门控的时空注意力聚合。
+- **`__init__` 参数**:
+  - `d_in`, `d` (int): 输入输出维度。
+  - `heads` (int): 注意力头数。
+  - `W` (int): 时间窗口。
+  - `attn_drop` (float): 注意力权重的 Dropout 概率。
+  - `temp` (float): Softmax 的温度系数。
+  - `pe_*` 参数: 传递给 `RelativeTimeEncoding`。
+
+### `SurrogateLIFCell` (脉冲发放单元)
+
+- **文件**: `spikenet_x/surrogate_lif_cell.py`
+- **功能**: 支持高维特征输入和替代梯度训练的 LIF 神经元。
+- **`__init__` 参数**:
+  - `channels` (int): 输入特征维度。
+  - `v_threshold` (float): 膜电位阈值。
+  - `tau` (float): 膜电位时间常数（衰减因子）。
+  - `alpha` (float): 替代梯度平滑度。
+  - `surrogate` (str): 替代梯度函数名。
+
+## 如何使用
+
+### 环境配置
+
+建议使用 `conda` 创建虚拟环境，并安装必要的依赖。
+
+```bash
+# 1. 创建并激活 conda 环境
+conda create -n csegnn python=3.8
+conda activate csegnn
+
+# 2. 安装 PyTorch (请根据你的 CUDA 版本从官网选择合适的命令)
+# 例如 CUDA 11.7
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117
+
+# 3. 安装 PyTorch Geometric (PyG)
+pip install torch_geometric
+# 可选：安装更快的 GNN 算子
+pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
+
+# 4. 安装其他依赖
+pip install numpy scikit-learn tqdm texttable optuna
+```
+
+### 1. 数据准备 (特征生成)
+
+本模型使用 DeepWalk 预先为动态图的每个快照生成节点特征。如果你的数据集没有提供时序特征，请运行此脚本。
+
+```bash
+python generate_feature.py --dataset DBLP
+```
+
+* 将 `--dataset` 替换为 `Tmall` 或 `Patent` 以处理其他数据集。
+* 这会在相应的数据集目录（如 `./data/DBLP/`）下生成一个 `DBLP.npy` 文件，其中包含了 `[T, N, F]` 形状的节点特征。
+
+### 2. 模型训练
+
+使用 `main.py` 脚本进行模型训练和评估。
+
+```bash
+python main.py \
+    --model spiketdanet \
+    --dataset DBLP \
+    --hids 128 \
+    --heads 4 \
+    --W 32 \
+    --layers 2 \
+    --lr 0.001 \
+    --wd 0.0001 \
+    --epochs 100 \
+    --batch_size 256 \
+    --checkpoint_dir ./checkpoints
+```
+
+* 训练过程中，在验证集上表现最好的模型将被保存到 `--checkpoint_dir` 指定的目录中，文件名为 `best_model_{数据集名称}.pth`。
+* 你可以通过 `--resume_path` 参数从一个检查点继续训练。
+
+### 3. 模型测试
+
+如果你只想测试一个已经训练好的模型，可以使用 `--test_model_path` 参数。
+
+```bash
+python main.py \
+    --model spiketdanet \
+    --dataset DBLP \
+    --test_model_path ./checkpoints/best_model_DBLP.pth
+```
+
+脚本将加载模型，在测试集上运行一次评估，并打印 F1 分数。
+
+### 4. 超参数搜索 (Optuna)
+
+我们提供了 `main_optuna.py` 脚本来自动搜索最佳超参数组合。
+
+```bash
+python main_optuna.py
+```
+
+* 该脚本会针对 `DBLP` 数据集（可在脚本内修改 `DATASET_NAME` 常量）进行 200 次试验。
+* 搜索过程会被持久化到一个 SQLite 数据库文件（如 `spiketdanet_opt_DBLP.db`）中，可以随时中断和恢复。
+* 搜索结束后，会打印最佳参数组合，并生成 `optuna_report_*.html` 可视化报告，帮助你分析参数的重要性。
+
+## 命令行参数详解
+
+以下是 `main.py` 中与 Spike-TDANet 相关的主要参数：
+
+* `--model`: (str) 要使用的模型，选择 `spiketdanet`。
+* `--dataset`: (str) 数据集名称，如 `DBLP`, `Tmall`, `Patent`。
+* `--hids`: (int) 模型的隐藏维度 `d`。
+* `--layers`: (int) `SpikeTDANetLayer` 的层数。
+* `--heads`: (int) 注意力头数。
+* `--W`: (int) 时空注意力的回顾窗口大小。
+* `--readout`: (str) 最终节点表示的读出方式 (`'mean'` 或 `'last'`)。
+* `--lr`, `--wd`, `--epochs`, `--batch_size`: 标准的训练超参数。
+* `--surrogate`: (str) LIF 神经元使用的替代梯度函数，如 `'sigmoid'`。
+* `--checkpoint_dir`: (str) 保存最佳模型的目录。
+* `--resume_path`: (str) 用于继续训练的检查点路径。
+* `--test_model_path`: (str) 仅用于测试的模型路径。
+
+## 项目文件结构
 
 ```
-spikenet_x/
-├── __init__.py
-├── model.py                 # (新) 顶层模型 SpikeTDANet
-├── spiketdanet_layer.py     # (新) 核心编排层 SpikeTDANetLayer
-├── lif_cell.py              # (新) 纯粹的LIF神经元
-├── rel_time.py              # (新) 相对时间编码
-├── masked_ops.py            # (新) 掩码与Top-k工具
-└── new_modules/             # <-- 新建文件夹
-    ├── __init__.py
-    ├── spatial_gnn_wrapper.py # <-- 新建: 空间GNN预处理器
-    ├── delay_line.py          # <-- 新建: 可学习多延迟通路
-    └── sta_gnn_agg.py         # <-- 新建: 脉冲时序注意力GNN聚合器
+CSGNN/
+│
+├── main.py                   # Spike-TDANet 和基线模型的训练/评估主脚本
+├── main_optuna.py            # 使用 Optuna 进行超参数优化的脚本
+├── generate_feature.py       # 使用 DeepWalk 生成节点特征
+├── spikenet_x/               # Spike-TDANet 模型核心代码
+│   ├── model.py              # SpikeTDANet 整体模型定义
+│   ├── spiketdanet_layer.py  # SpikeTDANetLayer 核心层定义
+│   ├── surrogate_lif_cell.py # 带替代梯度的 LIF 神经元
+│   ├── new_modules/          # SpikeTDANetLayer 的构建模块
+│   │   ├── spatial_gnn_wrapper.py
+│   │   ├── delay_line.py
+│   │   ├── sta_gnn_agg_optimized.py # 优化的时空注意力聚合器
+│   │   └── ...
+│   └── rel_time.py           # 相对时间编码
+│
+├── spikenet/                 # 基线模型 (CSGNN) 的代码
+│   ├── dataset.py            # 数据集加载和预处理
+│   ├── layers.py             # 基线模型的层
+│   └── ...
+│
+└── data/                     # 数据集存放目录
 ```
-
-## 5. 模块详解
-
-### 主程序 (`main.py`)
-
-* **文件目的**: 整个项目的入口，负责数据加载、模型训练、验证和测试的完整流程。
-* **核心逻辑**:
-  1. **参数解析**: 定义并解析命令行参数，如模型类型 (`--model spiketdanet`)、数据集、学习率、批大小等。
-  2. **数据加载**: 使用 `spikenet.dataset` 加载 DBLP, Tmall, Patent 等时序图数据集。
-  3. **子图采样 (`sample_subgraph`)**:
-     * **作用**: 为了处理大规模图，训练时采用mini-batch方式。此函数负责为一个批次的中心节点（`nodes`）采样一个1-hop邻域子图。
-     * **输入**: `nodes` (中心节点ID `[B]`), `edge_index_full` (全图的边 `[2, E_full]`), `num_neighbors` (邻居采样数)。
-     * **输出**: `subgraph_nodes` (子图包含的所有节点ID), `subgraph_edge_index` (在子图节点上的局部边索引), `nodes_local_index` (中心节点在子图中的索引)。
-  4. **模型初始化**: 根据 `--model` 参数选择实例化 `SpikeTDANet`。
-  5. **训练循环 (`train_model`)**:
-     * 遍历 `train_loader`，对每个batch进行子图采样。
-     * 将子图的特征和边索引送入模型，得到 logits。
-     * 计算损失函数 (CrossEntropyLoss)，并加入一个脉冲发放率的正则项来鼓励稀疏激发。
-     * 反向传播并更新模型参数。
-  6. **评估逻辑 (`test_model`)**:
-     * 在验证集或测试集上进行评估，同样使用子图采样。
-     * 计算 F1-score (Micro 和 Macro) 作为评估指标。
-  7. **检查点管理**: 支持模型的保存、从检查点恢复训练 (`--resume_path`) 以及加载模型进行纯测试 (`--test_model_path`)。
-
-### 顶层模型 (`spikenet_x/model.py`)
-
-* **Class**: `SpikeTDANet`
-* **目的**: 作为顶层容器，堆叠多个 `SpikeTDANetLayer`，并处理模型的输入投影和最终输出读出。
-* **`__init__` 输入**:
-  * `d_in`: 原始节点特征维度。
-  * `d`: 模型内部的工作维度。
-  * `layers`: `SpikeTDANetLayer` 的堆叠层数。
-  * `heads`: 注意力头的数量。
-  * `W`: 注意力机制的时间窗口大小。
-  * `out_dim`: 最终分类任务的类别数。
-  * `readout`: 最终节点表示的生成方式 (`'mean'` 或 `'last'`)。
-* **`forward` 逻辑**:
-  1. **输入投影**: 使用一个线性层 `input_proj` 将原始特征 `H` `[T, N, d_in]` 映射到模型工作维度 `d`。
-  2. **逐层处理**: 循环遍历 `self.layers`，将上一层的输出 `(features, spikes)` 作为下一层的输入。
-  3. **读出 (Readout)**:
-     * 如果 `readout == 'mean'`，则对最后一层输出的特征在时间维度上取平均，得到每个节点的最终表示 `z` `[N, d]`。
-     * 如果 `readout == 'last'`，则取最后一个时间步的特征作为最终表示。
-  4. **分类头**: 将节点表示 `z` 通过一个线性层 `head` 得到最终的分类 logits `[N, out_dim]`。
-* **输出**: 一个包含 `repr` (节点表示), `Y_last` (最后一层特征), `S_list` (每层脉冲) 和 `logits` 的字典。
-
-### 核心编排层 (`spikenet_x/spiketdanet_layer.py`)
-
-* **Class**: `SpikeTDANetLayer`
-* **目的**: 实现[数据处理流程](#数据处理流程-单层)中描述的单层逻辑，是模型的核心编排单元。
-* **`__init__` 输入**:
-  * `channels`: 层的特征维度 `d`。
-  * `heads`: 注意力头数量。
-  * `W`: 时间窗口大小。
-  * `delay_kernel`: `DelayLine` 的卷积核大小。
-  * `**kwargs`: 其他传递给子模块的参数，如LIF神经元参数 (`lif_tau_theta`, `lif_gamma` 等)。
-* **`forward` 逻辑**: 严格按照[数据处理流程](#数据处理流程-单层)所述，依次调用 `spatial_gnn`, `delay_line`, `aggregator`, `lif_cell`, 和 `ffn`，并正确处理它们之间的残差连接和层归一化。
-* **输出**: `(output_features, new_spikes)` 元组，传递给下一层。
-
-### 空间GNN预处理器 (`spikenet_x/new_modules/spatial_gnn_wrapper.py`)
-
-* **Class**: `SpatialGNNWrapper`
-* **目的**: 在时序图的每个时间步上高效地应用标准GNN卷积（如 `SAGEConv`）。
-* **`__init__` 输入**:
-  * `in_channels`, `out_channels`: 输入输出特征维度。
-* **`forward` 输入**:
-  * `x`: 节点特征 `[T, N, d_in]`。
-  * `edge_index`: 图结构 `[2, E]`。
-* **处理逻辑**:
-  1. 将 `x` 重塑为 `[T*N, d_in]`，将时间维和节点维合并，形成一个大的批次。
-  2. 通过对 `edge_index` 添加偏移量 `t * N`，将其扩展为对应 `T` 个图快照的批处理边索引。
-  3. 调用 `self.conv` 对重塑后的 `x` 和扩展后的 `edge_index` 进行一次高效的批处理GNN计算。
-  4. 将结果恢复为 `[T, N, d_out]` 并返回。
-* **输出**: 空间聚合后的节点特征 `[T, N, d_out]`。
-
-### 可学习延迟通路 (`spikenet_x/new_modules/delay_line.py`)
-
-* **Class**: `DelayLine`
-* **目的**: 使用因果深度可分离1D卷积，低成本地建模多种时间延迟。
-* **`__init__` 输入**:
-  * `channels`: 特征维度 `d`。
-  * `kernel_size`: 卷积核大小，决定了能建模的最大延迟。
-* **`forward` 输入**:
-  * `x`: 节点特征 `[T, N, d]`。
-* **处理逻辑**:
-  1. 将 `x` 的维度重排为 `[N, d, T]`，以适应1D卷积对时间维的操作。
-  2. 应用 `padding = kernel_size - 1` 的左侧填充，确保卷积的**因果性**（`t` 时刻的输出只依赖于 `<=t` 的输入）。
-  3. 执行深度卷积 (`groups=channels`) 和逐点卷积 (`kernel_size=1`)。
-  4. 对输出进行切片，移除因填充而多出的部分，保持时间长度为 `T`。
-  5. 将结果维度恢复为 `[T, N, d]`。
-* **输出**: 经过延迟建模后的特征 `[T, N, d]`。
-
-### 脉冲时序注意力聚合器 (`spikenet_x/new_modules/sta_gnn_agg.py`)
-
-* **Class**: `STAGNNAggregator`
-* **目的**: 模型的计算核心。执行稀疏化的、带脉冲门控的因果时空注意力。
-* **`__init__` 输入**:
-  * `d_in`, `d`: 输入输出维度。
-  * `heads`: 注意力头数。
-  * `W`: 时间窗口大小。
-  * `attn_drop`: Attention权重的Dropout概率。
-* **`forward` 输入**:
-  * `H_tilde`: 经过 `DelayLine`处理的特征 `[T, N, d_in]`。
-  * `S`: 脉冲门控信号 `[T, N]`。
-  * `edge_index`: 图结构 `[2, E]`。
-  * `time_idx`: 时间索引 `[T]`。
-* **处理逻辑 (基于稀疏实现)**:
-  1. **预计算**: 对所有时间步的 `H_tilde` 计算出 Q, K, V 投影。
-  2. **时间步循环**: 对每个目标时间步 `t`：
-     * **Pass 1 (计算最大值)**: 在时间窗口 `t' in [t-W, t]` 内，对每条边 `j->i` (`src->dst`) 计算其注意力分数 `score(i, j, t, t')`。此分数包含Q-K点积、相对时间偏置和源节点 `j` 在 `t'` 时刻的脉冲门控 `log(S[t', j])`。然后，对每个目标节点 `i`，计算其在所有时间窗口内所有邻居中收到的最大分数 `max_score(i)`。
-     * **Pass 2 (计算聚合)**: 再次遍历时间窗口和边，计算 `exp(score - max_score(i))`。使用 `scatter_add` 操作稳定地计算每个目标节点 `i` 的归一化分母和加权后的V值分子。
-     * 最终得到聚合后的消息 `M[t, i, :]`。
-  3. 将所有时间步的消息 `M[t, :, :]` 组合起来。
-* **输出**: 聚合后的消息 `aggregated_message` `[T, N, d]`。
-
-### LIF神经元 (`spikenet_x/lif_cell.py`)
-
-* **Class**: `LIFCell`
-* **目的**: 纯粹的Leaky Integrate-and-Fire (LIF) 神经元动力学模型。
-* **`__init__` 输入**:
-  * `lif_tau_theta`: 膜电位发放阈值 `V_th`。
-  * `lif_gamma`: 脉冲后膜电位的重置衰减因子。
-  * `lif_beta`: 膜电位泄漏因子。
-* **`forward` 输入**:
-  * `I_in`: 输入电流 `[T, N]`。
-* **处理逻辑**:
-  1. 初始化膜电位 `v` 和脉冲 `s` 为零。
-  2. 按时间步 `t` 循环：
-     a. **泄漏 (Leak)**: `v = v * beta`。
-     b. **积分 (Integrate)**: `v = v + I_in[t]`。
-     c. **重置 (Reset)**: `v = v - s * gamma` (减去上一步脉冲的影响)。
-     d. **发放 (Fire)**: `s = (v > V_th).float()`，如果电位超过阈值，则发放脉冲。
-     e. **硬重置**: `v = v * (1.0 - s)`，发放脉冲后电位归零。
-  3. 记录并返回所有时间步的脉冲和膜电位历史。
-* **输出**: `(spikes, v_mem, spike_history)` 元组，均为 `[T, N]` 张量。
-
-### 辅助模块
-
-* **`spikenet_x/rel_time.py` -> `RelativeTimeEncoding`**:
-
-  * **作用**: 生成相对时间编码。对于一个时间差 `Δt`，它能产生一个唯一的编码向量，编码方式结合了指数衰减和正/余弦函数。同时，它维护一个可学习的相对偏置向量 `b[Δt]`。
-  * **输出**: `(pe_table, rel_bias)`，一个编码查找表和一个偏置查找表，供 `STAGNNAggregator` 使用。
-* **`spikenet/dataset.py`**:
-
-  * **作用**: 负责加载和预处理DBLP, Tmall, Patent等时序图数据集。它将原始数据文件解析为一系列图快照，每个快照包含节点特征 `x` 和边 `edge_index`。
-* **`spikenet/utils.py`**:
-
-  * **作用**: 提供工具函数，如邻居采样器 (`Sampler`)、随机游走采样器 (`RandomWalkSampler`) 和自环处理函数。
-
-## 6. 如何运行
-
-1. **环境配置**: 确保已安装 `torch`, `torch_geometric`, `numpy`, `scikit-learn`, `texttable` 等依赖库。如果 `STAGNNAggregator` 报错，请确保 `torch` 版本 >= 1.12 或安装 `torch_scatter`。
-2. **数据准备**:
-
-   * 将数据集（如DBLP）放置在 `data/` 目录下。
-   * 如果节点特征文件 (`.npy`) 不存在，运行特征生成脚本：
-     ```bash
-     python generate_feature.py --dataset DBLP
-     ```
-3. **模型训练**:
-
-   * 运行 `main.py` 脚本，并指定模型为 `spiketdanet`。
-   * **示例命令**:
-     ```bash
-     python main.py --model spiketdanet --dataset DBLP --epochs 100 --lr 5e-4 --batch_size 512 --hids 64 --heads 4 --W 16
-     python main.py  --model spiketdanet  --dataset dblp  --hids 128 10  --epochs 100  --lr 0.005  --heads 4  --W 32  --batch_size 512  --datapath /data4/zhengzhuoyu/data  --train_size 0.8
-     ```
-   * **关键参数**:
-     * `--model spiketdanet`: **必须指定**，以使用新模型。
-     * `--dataset`: 选择数据集 (DBLP, Tmall, Patent)。
-     * `--hids`: 模型内部特征维度 `d` (只取第一个值)。
-     * `--heads`: 注意力头数。
-     * `--W`: 时间窗口大小。
-     * `--checkpoint_dir`: 保存最佳模型的目录。
-4. **恢复训练**:
-
-   * 如果训练中断，可以使用 `--resume_path` 参数从上次保存的检查点继续。
-     ```bash
-     python main.py ... --resume_path checkpoints/best_model_DBLP.pth
-     ```
-5. **模型测试**:
-
-   * 使用 `--test_model_path` 加载一个已训练好的模型并进行评估。
-     ```bash
-     python main.py --model spiketdanet --dataset DBLP --test_model_path checkpoints/best_model_DBLP.pth
-     ```
-
-> provided by [EasyChat](http://iSq7n9s0OQ.site.llm99.com/)

@@ -105,5 +105,6 @@ ENV/
 
 # Mac files
 .DS_Store
-spiketdanet_opt_DBLP.db
 CSGNN_prompt.md
+spiketdanet_opt_DBLP.db
+

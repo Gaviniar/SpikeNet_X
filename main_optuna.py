@@ -26,8 +26,8 @@ from typing import Tuple
 # --- [Optuna] 将固定的参数定义为全局常量 ---
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DATASET_NAME = "DBLP"
-DATAPATH = './data'
-EPOCHS = 20
+DATAPATH = '/data4/zhengzhuoyu/data'
+EPOCHS = 30
 BATCH_SIZE = 256
 TRAIN_SIZE = 0.8
 VAL_SIZE = 0.05
@@ -93,19 +93,21 @@ time_idx_full = torch.arange(T, device=DEVICE)
 print("--- Data Ready ---")
 
 
-# --- [Optuna] 定义 Objective 函数 (保持不变) ---
+# --- [Optuna] 超参 ---
 def objective(trial: optuna.Trial) -> float:
-    lr = trial.suggest_float("lr", 1e-7, 1e-3, log=True)
+    lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     wd = trial.suggest_float("wd", 1e-6, 1e-3, log=True)
     d = 128
     heads = trial.suggest_categorical("heads", [2, 4, 8])
-    layers = trial.suggest_int("layers", 2, 5) 
+    layers = trial.suggest_int("layers", 1, 4) 
     W = trial.suggest_int("W", 8, 48, step=8)
     readout = trial.suggest_categorical("readout", ["mean", "last"])
     lif_tau = trial.suggest_float("lif_tau", 0.8, 0.99)
     lif_alpha = trial.suggest_float("lif_alpha", 0.5, 2.0)
     surrogate = trial.suggest_categorical("surrogate", ["sigmoid", "triangle"])
     num_neighbors = trial.suggest_int("num_neighbors", 15, 35, step=5)
+    spike_reg_coeff = trial.suggest_float("spike_reg_coeff", 1e-6, 1e-4, log=True)
+    target_spike_rate = trial.suggest_float("target_spike_rate", 0.1, 0.3)
     
     if d % heads != 0:
         raise optuna.exceptions.TrialPruned()
@@ -132,7 +134,7 @@ def objective(trial: optuna.Trial) -> float:
             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
             spike_rate = output['S_list'].float().mean()
             if epoch > 10:
-                loss = loss + 2e-5 * (spike_rate - 0.15).abs()
+                loss = loss + spike_reg_coeff * (spike_rate - target_spike_rate).abs()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -169,14 +171,12 @@ def objective(trial: optuna.Trial) -> float:
 
 
 if __name__ == "__main__":
-    # --- [修改] 第1步: 定义数据库和研究名称 ---
     study_name = f"spiketdanet_opt_{DATASET_NAME}"  # e.g., "spiketdanet_opt_DBLP"
     storage_name = f"sqlite:///{study_name}.db"
     
     print(f"Study Name: {study_name}")
     print(f"Storage: {storage_name}")
 
-    # --- [修改] 第2步: 创建Study并连接到数据库 ---
     study = optuna.create_study(
         study_name=study_name,
         storage=storage_name,
@@ -185,9 +185,11 @@ if __name__ == "__main__":
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=5, n_startup_trials=3)
     )
 
-    study.optimize(objective, n_trials=200, timeout=3600*4)
+    study.optimize(objective
+                #    , n_trials=200
+                   , timeout=3600*8
+                   )
 
-    # --- [修改] 第3步: 打印最终结果并生成网页报告 ---
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
 
@@ -205,7 +207,6 @@ if __name__ == "__main__":
         print(f"    {key}: {value}")
     print("="*40)
 
-    # --- [新增] 第4步: 生成并保存可视化网页 ---
     print("\nGenerating visualization reports...")
     
     # 1. 优化历史图：展示每次试验的分数
