@@ -404,9 +404,7 @@ if args.model == 'spiketdanet':
             for layer in model.layers:
                 layer.lif_cell.beta = torch.tensor(2.0, device=layer.lif_cell.beta.device)
 
-        # ========== [修改开始] ==========
         train_loss, train_spike_rate = train_model() # 接收返回的脉冲率
-        # ========== [修改结束] ==========
         
         val_metric = test_model(val_loader)
         test_metric = test_model(test_loader)
@@ -428,14 +426,12 @@ if args.model == 'spiketdanet':
             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
 
         end = time.time()
-        # ========== [修改开始] ==========
-        # 在打印信息中加入 train_loss 和 train_spike_rate
+
         print(
             f'Epoch: {epoch:03d}, Loss: {train_loss:.4f}, Spike Rate: {train_spike_rate:.4f}, '
             f'Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
         )
-        # ========== [修改结束] ==========
 
 else:
     # --- Original SpikeNet Training and Evaluation ---

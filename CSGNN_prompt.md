@@ -34,9 +34,9 @@
 
 - Extension: 
 - Language: unknown
-- Size: 1323 bytes
+- Size: 1325 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-16 23:28:20
+- Modified: 2025-09-17 13:07:06
 
 ### Code
 
@@ -148,8 +148,9 @@
 105 | 
 106 | # Mac files
 107 | .DS_Store
-108 | spiketdanet_opt_DBLP.db
-109 | CSGNN_prompt.md
+108 | CSGNN_prompt.md
+109 | spiketdanet_opt_DBLP.db
+110 | 
 ```
 
 ## File: F:\SomeProjects\CSGNN\generate_feature.py
@@ -241,9 +242,9 @@
 
 - Extension: .py
 - Language: python
-- Size: 21049 bytes
+- Size: 20791 bytes
 - Created: 2025-08-21 17:29:04
-- Modified: 2025-09-16 22:21:02
+- Modified: 2025-09-17 15:09:32
 
 ### Code
 
@@ -654,91 +655,87 @@
 404 |             for layer in model.layers:
 405 |                 layer.lif_cell.beta = torch.tensor(2.0, device=layer.lif_cell.beta.device)
 406 | 
-407 |         # ========== [修改开始] ==========
-408 |         train_loss, train_spike_rate = train_model() # 接收返回的脉冲率
-409 |         # ========== [修改结束] ==========
-410 |         
-411 |         val_metric = test_model(val_loader)
-412 |         test_metric = test_model(test_loader)
-413 | 
-414 |         is_best = val_metric[1] > best_val_metric
-415 |         if is_best:
-416 |             best_val_metric = val_metric[1]
-417 |             best_test_metric = test_metric
-418 | 
-419 |             os.makedirs(args.checkpoint_dir, exist_ok=True)
-420 |             checkpoint_path = os.path.join(args.checkpoint_dir, f'best_model_{args.dataset}.pth')
-421 |             torch.save({
-422 |                 'epoch': epoch,
-423 |                 'model_state_dict': model.state_dict(),
-424 |                 'optimizer_state_dict': optimizer.state_dict(),
-425 |                 'best_val_metric': best_val_metric,
-426 |                 'test_metric_at_best_val': test_metric,
-427 |             }, checkpoint_path)
-428 |             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
+407 |         train_loss, train_spike_rate = train_model() # 接收返回的脉冲率
+408 |         
+409 |         val_metric = test_model(val_loader)
+410 |         test_metric = test_model(test_loader)
+411 | 
+412 |         is_best = val_metric[1] > best_val_metric
+413 |         if is_best:
+414 |             best_val_metric = val_metric[1]
+415 |             best_test_metric = test_metric
+416 | 
+417 |             os.makedirs(args.checkpoint_dir, exist_ok=True)
+418 |             checkpoint_path = os.path.join(args.checkpoint_dir, f'best_model_{args.dataset}.pth')
+419 |             torch.save({
+420 |                 'epoch': epoch,
+421 |                 'model_state_dict': model.state_dict(),
+422 |                 'optimizer_state_dict': optimizer.state_dict(),
+423 |                 'best_val_metric': best_val_metric,
+424 |                 'test_metric_at_best_val': test_metric,
+425 |             }, checkpoint_path)
+426 |             print(f"Epoch {epoch:03d}: New best model saved to {checkpoint_path} with Val Micro: {best_val_metric:.4f}")
+427 | 
+428 |         end = time.time()
 429 | 
-430 |         end = time.time()
-431 |         # ========== [修改开始] ==========
-432 |         # 在打印信息中加入 train_loss 和 train_spike_rate
-433 |         print(
-434 |             f'Epoch: {epoch:03d}, Loss: {train_loss:.4f}, Spike Rate: {train_spike_rate:.4f}, '
-435 |             f'Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
-436 |             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
-437 |         )
-438 |         # ========== [修改结束] ==========
-439 | 
-440 | else:
-441 |     # --- Original SpikeNet Training and Evaluation ---
-442 |     model = SpikeNet(data.num_features, data.num_classes, alpha=args.alpha,
-443 |                      dropout=args.dropout, sampler=args.sampler, p=args.p,
-444 |                      aggr=args.aggr, concat=args.concat, sizes=args.sizes, surrogate=args.surrogate,
-445 |                      hids=args.hids, act=args.neuron, bias=True).to(device)
-446 | 
-447 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-448 |     loss_fn = nn.CrossEntropyLoss()
-449 | 
-450 |     def train():
-451 |         model.train()
-452 |         for nodes in tqdm(train_loader, desc='Training'):
-453 |             optimizer.zero_grad()
-454 |             loss_fn(model(nodes), y[nodes]).backward()
-455 |             optimizer.step()
-456 | 
-457 |     @torch.no_grad()
-458 |     def test(loader):
-459 |         model.eval()
-460 |         logits = []
-461 |         labels = []
-462 |         for nodes in loader:
-463 |             logits.append(model(nodes))
-464 |             labels.append(y[nodes])
-465 |         logits = torch.cat(logits, dim=0).cpu()
-466 |         labels = torch.cat(labels, dim=0).cpu()
-467 |         logits = logits.argmax(1)
-468 |         metric_macro = metrics.f1_score(labels, logits, average='macro')
-469 |         metric_micro = metrics.f1_score(labels, logits, average='micro')
-470 |         return metric_macro, metric_micro
-471 | 
-472 |     best_val_metric = test_metric = 0
-473 |     start = time.time()
-474 |     for epoch in range(1, args.epochs + 1):
-475 |         train()
-476 |         val_metric, test_metric = test(val_loader), test(test_loader)
-477 |         if val_metric[1] > best_val_metric:
-478 |             best_val_metric = val_metric[1]
-479 |             best_test_metric = test_metric
-480 |         end = time.time()
-481 |         print(
-482 |             f'Epoch: {epoch:03d}, Val: {val_metric[1]:.4f}, Test: {test_metric[1]:.4f}, Best: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time elapsed {end-start:.2f}s')
+430 |         print(
+431 |             f'Epoch: {epoch:03d}, Loss: {train_loss:.4f}, Spike Rate: {train_spike_rate:.4f}, '
+432 |             f'Val Micro: {val_metric[1]:.4f}, Test Micro: {test_metric[1]:.4f}, '
+433 |             f'Best Test: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time: {end-start:.2f}s'
+434 |         )
+435 | 
+436 | else:
+437 |     # --- Original SpikeNet Training and Evaluation ---
+438 |     model = SpikeNet(data.num_features, data.num_classes, alpha=args.alpha,
+439 |                      dropout=args.dropout, sampler=args.sampler, p=args.p,
+440 |                      aggr=args.aggr, concat=args.concat, sizes=args.sizes, surrogate=args.surrogate,
+441 |                      hids=args.hids, act=args.neuron, bias=True).to(device)
+442 | 
+443 |     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+444 |     loss_fn = nn.CrossEntropyLoss()
+445 | 
+446 |     def train():
+447 |         model.train()
+448 |         for nodes in tqdm(train_loader, desc='Training'):
+449 |             optimizer.zero_grad()
+450 |             loss_fn(model(nodes), y[nodes]).backward()
+451 |             optimizer.step()
+452 | 
+453 |     @torch.no_grad()
+454 |     def test(loader):
+455 |         model.eval()
+456 |         logits = []
+457 |         labels = []
+458 |         for nodes in loader:
+459 |             logits.append(model(nodes))
+460 |             labels.append(y[nodes])
+461 |         logits = torch.cat(logits, dim=0).cpu()
+462 |         labels = torch.cat(labels, dim=0).cpu()
+463 |         logits = logits.argmax(1)
+464 |         metric_macro = metrics.f1_score(labels, logits, average='macro')
+465 |         metric_micro = metrics.f1_score(labels, logits, average='micro')
+466 |         return metric_macro, metric_micro
+467 | 
+468 |     best_val_metric = test_metric = 0
+469 |     start = time.time()
+470 |     for epoch in range(1, args.epochs + 1):
+471 |         train()
+472 |         val_metric, test_metric = test(val_loader), test(test_loader)
+473 |         if val_metric[1] > best_val_metric:
+474 |             best_val_metric = val_metric[1]
+475 |             best_test_metric = test_metric
+476 |         end = time.time()
+477 |         print(
+478 |             f'Epoch: {epoch:03d}, Val: {val_metric[1]:.4f}, Test: {test_metric[1]:.4f}, Best: Macro-{best_test_metric[0]:.4f}, Micro-{best_test_metric[1]:.4f}, Time elapsed {end-start:.2f}s')
 ```
 
 ## File: F:\SomeProjects\CSGNN\main_optuna.py
 
 - Extension: .py
 - Language: python
-- Size: 9291 bytes
+- Size: 9123 bytes
 - Created: 2025-09-16 22:40:43
-- Modified: 2025-09-16 23:29:29
+- Modified: 2025-09-17 15:08:53
 
 ### Code
 
@@ -771,8 +768,8 @@
  26 | # --- [Optuna] 将固定的参数定义为全局常量 ---
  27 | DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
  28 | DATASET_NAME = "DBLP"
- 29 | DATAPATH = './data'
- 30 | EPOCHS = 20
+ 29 | DATAPATH = '/data4/zhengzhuoyu/data'
+ 30 | EPOCHS = 30
  31 | BATCH_SIZE = 256
  32 | TRAIN_SIZE = 0.8
  33 | VAL_SIZE = 0.05
@@ -780,7 +777,7 @@
  35 | SPLIT_SEED = 4222
  36 | SEED = 2025
  37 | 
- 38 | # ... (sample_subgraph, set_seed, 数据加载部分保持不变) ...
+ 38 | 
  39 | def sample_subgraph(nodes: torch.Tensor, edge_index_full: torch.Tensor, num_neighbors: int = -1) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
  40 |     row, col = edge_index_full
  41 |     device = row.device
@@ -838,140 +835,141 @@
  93 | print("--- Data Ready ---")
  94 | 
  95 | 
- 96 | # --- [Optuna] 定义 Objective 函数 (保持不变) ---
+ 96 | # --- [Optuna] 超参 ---
  97 | def objective(trial: optuna.Trial) -> float:
- 98 |     lr = trial.suggest_float("lr", 1e-7, 1e-3, log=True)
+ 98 |     lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
  99 |     wd = trial.suggest_float("wd", 1e-6, 1e-3, log=True)
 100 |     d = 128
 101 |     heads = trial.suggest_categorical("heads", [2, 4, 8])
-102 |     layers = trial.suggest_int("layers", 2, 5) 
+102 |     layers = trial.suggest_int("layers", 1, 4) 
 103 |     W = trial.suggest_int("W", 8, 48, step=8)
 104 |     readout = trial.suggest_categorical("readout", ["mean", "last"])
 105 |     lif_tau = trial.suggest_float("lif_tau", 0.8, 0.99)
 106 |     lif_alpha = trial.suggest_float("lif_alpha", 0.5, 2.0)
 107 |     surrogate = trial.suggest_categorical("surrogate", ["sigmoid", "triangle"])
 108 |     num_neighbors = trial.suggest_int("num_neighbors", 15, 35, step=5)
-109 |     
-110 |     if d % heads != 0:
-111 |         raise optuna.exceptions.TrialPruned()
-112 | 
-113 |     model = SpikeTDANet(
-114 |         d_in=d_in, d=d, layers=layers, heads=heads, W=W, out_dim=data.num_classes,
-115 |         readout=readout, lif_tau=lif_tau, lif_v_threshold=1.0, lif_alpha=lif_alpha,
-116 |         lif_surrogate=surrogate
-117 |     ).to(DEVICE)
-118 | 
-119 |     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
-120 |     loss_fn = nn.CrossEntropyLoss()
-121 | 
-122 |     def train_model_step(epoch):
-123 |         model.train()
-124 |         total_loss = 0
-125 |         for nodes in train_loader:
-126 |             nodes = nodes.to(DEVICE)
-127 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors)
-128 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
-129 |             optimizer.zero_grad()
-130 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
-131 |             subgraph_logits = output['logits']
-132 |             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
-133 |             spike_rate = output['S_list'].float().mean()
-134 |             if epoch > 10:
-135 |                 loss = loss + 2e-5 * (spike_rate - 0.15).abs()
-136 |             loss.backward()
-137 |             optimizer.step()
-138 |             total_loss += loss.item()
-139 |         return total_loss / len(train_loader)
-140 | 
-141 |     @torch.no_grad()
-142 |     def test_model_step(loader):
-143 |         model.eval()
-144 |         logits_list, labels_list = [], []
-145 |         for nodes in loader:
-146 |             nodes = nodes.to(DEVICE)
-147 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors)
-148 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
-149 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
-150 |             subgraph_logits = output['logits']
-151 |             logits_list.append(subgraph_logits[nodes_local_index].cpu())
-152 |             labels_list.append(y[nodes].cpu())
-153 |         logits = torch.cat(logits_list, dim=0).argmax(1)
-154 |         labels = torch.cat(labels_list, dim=0)
-155 |         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
-156 |         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
-157 |         return macro, micro
-158 | 
-159 |     best_val_micro = 0.0
-160 |     for epoch in range(1, EPOCHS + 1):
-161 |         train_model_step(epoch)
-162 |         val_macro, val_micro = test_model_step(val_loader)
-163 |         if val_micro > best_val_micro:
-164 |             best_val_micro = val_micro
-165 |         trial.report(val_micro, epoch)
-166 |         if trial.should_prune():
-167 |             raise optuna.exceptions.TrialPruned()
-168 |     return best_val_micro
-169 | 
-170 | 
-171 | if __name__ == "__main__":
-172 |     # --- [修改] 第1步: 定义数据库和研究名称 ---
-173 |     study_name = f"spiketdanet_opt_{DATASET_NAME}"  # e.g., "spiketdanet_opt_DBLP"
-174 |     storage_name = f"sqlite:///{study_name}.db"
-175 |     
-176 |     print(f"Study Name: {study_name}")
-177 |     print(f"Storage: {storage_name}")
-178 | 
-179 |     # --- [修改] 第2步: 创建Study并连接到数据库 ---
+109 |     spike_reg_coeff = trial.suggest_float("spike_reg_coeff", 1e-6, 1e-4, log=True)
+110 |     target_spike_rate = trial.suggest_float("target_spike_rate", 0.1, 0.3)
+111 |     
+112 |     if d % heads != 0:
+113 |         raise optuna.exceptions.TrialPruned()
+114 | 
+115 |     model = SpikeTDANet(
+116 |         d_in=d_in, d=d, layers=layers, heads=heads, W=W, out_dim=data.num_classes,
+117 |         readout=readout, lif_tau=lif_tau, lif_v_threshold=1.0, lif_alpha=lif_alpha,
+118 |         lif_surrogate=surrogate
+119 |     ).to(DEVICE)
+120 | 
+121 |     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+122 |     loss_fn = nn.CrossEntropyLoss()
+123 | 
+124 |     def train_model_step(epoch):
+125 |         model.train()
+126 |         total_loss = 0
+127 |         for nodes in train_loader:
+128 |             nodes = nodes.to(DEVICE)
+129 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors)
+130 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
+131 |             optimizer.zero_grad()
+132 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
+133 |             subgraph_logits = output['logits']
+134 |             loss = loss_fn(subgraph_logits[nodes_local_index], y[nodes])
+135 |             spike_rate = output['S_list'].float().mean()
+136 |             if epoch > 10:
+137 |                 loss = loss + spike_reg_coeff * (spike_rate - target_spike_rate).abs()
+138 |             loss.backward()
+139 |             optimizer.step()
+140 |             total_loss += loss.item()
+141 |         return total_loss / len(train_loader)
+142 | 
+143 |     @torch.no_grad()
+144 |     def test_model_step(loader):
+145 |         model.eval()
+146 |         logits_list, labels_list = [], []
+147 |         for nodes in loader:
+148 |             nodes = nodes.to(DEVICE)
+149 |             subgraph_nodes, subgraph_edge_index, nodes_local_index = sample_subgraph(nodes, edge_index_full, num_neighbors=num_neighbors)
+150 |             H0_subgraph = H0_full[:, subgraph_nodes, :]
+151 |             output = model(H0_subgraph, subgraph_edge_index, time_idx_full)
+152 |             subgraph_logits = output['logits']
+153 |             logits_list.append(subgraph_logits[nodes_local_index].cpu())
+154 |             labels_list.append(y[nodes].cpu())
+155 |         logits = torch.cat(logits_list, dim=0).argmax(1)
+156 |         labels = torch.cat(labels_list, dim=0)
+157 |         micro = metrics.f1_score(labels, logits, average='micro', zero_division=0)
+158 |         macro = metrics.f1_score(labels, logits, average='macro', zero_division=0)
+159 |         return macro, micro
+160 | 
+161 |     best_val_micro = 0.0
+162 |     for epoch in range(1, EPOCHS + 1):
+163 |         train_model_step(epoch)
+164 |         val_macro, val_micro = test_model_step(val_loader)
+165 |         if val_micro > best_val_micro:
+166 |             best_val_micro = val_micro
+167 |         trial.report(val_micro, epoch)
+168 |         if trial.should_prune():
+169 |             raise optuna.exceptions.TrialPruned()
+170 |     return best_val_micro
+171 | 
+172 | 
+173 | if __name__ == "__main__":
+174 |     study_name = f"spiketdanet_opt_{DATASET_NAME}"  # e.g., "spiketdanet_opt_DBLP"
+175 |     storage_name = f"sqlite:///{study_name}.db"
+176 |     
+177 |     print(f"Study Name: {study_name}")
+178 |     print(f"Storage: {storage_name}")
+179 | 
 180 |     study = optuna.create_study(
 181 |         study_name=study_name,
 182 |         storage=storage_name,
-183 |         load_if_exists=True,  # 如果数据库已存在，就加载它，可以中断后继续
+183 |         load_if_exists=True, 
 184 |         direction="maximize",
 185 |         pruner=optuna.pruners.MedianPruner(n_warmup_steps=5, n_startup_trials=3)
 186 |     )
 187 | 
-188 |     study.optimize(objective, n_trials=200, timeout=3600*4)
-189 | 
-190 |     # --- [修改] 第3步: 打印最终结果并生成网页报告 ---
-191 |     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
-192 |     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
-193 | 
-194 |     print("\n" + "="*40)
-195 |     print("Study statistics: ")
-196 |     print(f"  Number of finished trials: {len(study.trials)}")
-197 |     print(f"  Number of pruned trials: {len(pruned_trials)}")
-198 |     print(f"  Number of complete trials: {len(complete_trials)}")
-199 | 
-200 |     print("\nBest trial:")
-201 |     trial = study.best_trial
-202 |     print(f"  Value (Max Validation Micro-F1): {trial.value:.4f}")
-203 |     print("  Params: ")
-204 |     for key, value in trial.params.items():
-205 |         print(f"    {key}: {value}")
-206 |     print("="*40)
-207 | 
-208 |     # --- [新增] 第4步: 生成并保存可视化网页 ---
-209 |     print("\nGenerating visualization reports...")
-210 |     
-211 |     # 1. 优化历史图：展示每次试验的分数
-212 |     fig_history = vis.plot_optimization_history(study)
-213 |     fig_history.write_html("optuna_report_history.html")
-214 | 
-215 |     # 2. 参数重要性图：分析哪个超参数对结果影响最大
-216 |     try:
-217 |         fig_importance = vis.plot_param_importances(study)
-218 |         fig_importance.write_html("optuna_report_importance.html")
-219 |     except Exception as e:
-220 |         print(f"Could not generate importance plot: {e}")
-221 | 
+188 |     study.optimize(objective
+189 |                 #    , n_trials=200
+190 |                    , timeout=3600*8
+191 |                    )
+192 | 
+193 |     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+194 |     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+195 | 
+196 |     print("\n" + "="*40)
+197 |     print("Study statistics: ")
+198 |     print(f"  Number of finished trials: {len(study.trials)}")
+199 |     print(f"  Number of pruned trials: {len(pruned_trials)}")
+200 |     print(f"  Number of complete trials: {len(complete_trials)}")
+201 | 
+202 |     print("\nBest trial:")
+203 |     trial = study.best_trial
+204 |     print(f"  Value (Max Validation Micro-F1): {trial.value:.4f}")
+205 |     print("  Params: ")
+206 |     for key, value in trial.params.items():
+207 |         print(f"    {key}: {value}")
+208 |     print("="*40)
+209 | 
+210 |     print("\nGenerating visualization reports...")
+211 |     
+212 |     # 1. 优化历史图：展示每次试验的分数
+213 |     fig_history = vis.plot_optimization_history(study)
+214 |     fig_history.write_html("optuna_report_history.html")
+215 | 
+216 |     # 2. 参数重要性图：分析哪个超参数对结果影响最大
+217 |     try:
+218 |         fig_importance = vis.plot_param_importances(study)
+219 |         fig_importance.write_html("optuna_report_importance.html")
+220 |     except Exception as e:
+221 |         print(f"Could not generate importance plot: {e}")
 222 | 
-223 |     # 3. 参数切片图：观察单个超参数与分数的关系
-224 |     fig_slice = vis.plot_slice(study)
-225 |     fig_slice.write_html("optuna_report_slice.html")
-226 |     
-227 |     print(f"Reports saved to .html files. You can open them with your browser.")
-228 |     print(f"Database saved to '{study_name}.db'.")
-229 | 
+223 | 
+224 |     # 3. 参数切片图：观察单个超参数与分数的关系
+225 |     fig_slice = vis.plot_slice(study)
+226 |     fig_slice.write_html("optuna_report_slice.html")
+227 |     
+228 |     print(f"Reports saved to .html files. You can open them with your browser.")
+229 |     print(f"Database saved to '{study_name}.db'.")
+230 | 
 ```
 
 ## File: F:\SomeProjects\CSGNN\main_static.py
