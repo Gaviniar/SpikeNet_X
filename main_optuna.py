@@ -25,7 +25,7 @@ from typing import Tuple
 
 # --- [Optuna] 将固定的参数定义为全局常量 ---
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-DATASET_NAME = "Patent"
+DATASET_NAME = "Tmall"
 DATAPATH = '/data4/zhengzhuoyu/data'
 EPOCHS = 30
 BATCH_SIZE = 256
